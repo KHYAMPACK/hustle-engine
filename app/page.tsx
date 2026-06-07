@@ -1,3 +1,4 @@
+import { SignOutButton } from "@/app/SignOutButton";
 import Link from "next/link";
 
 export default function LandingGate() {
@@ -26,6 +27,8 @@ export default function LandingGate() {
           >
             Resume Active Venture
           </Link>
+
+          <SignOutButton />
         </div>
       </div>
     </main>

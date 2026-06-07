@@ -1,0 +1,120 @@
+import type { BusinessCategoryId } from "@/lib/ai/gauntlet/types";
+
+export const PENDING_CATEGORY = "pending" as const;
+
+export type TaxonomyEntry = {
+  id: BusinessCategoryId;
+  pillar: 1 | 2 | 3;
+  pillarLabel: string;
+  internalDescription: string;
+  customerModelLanguage: string;
+};
+
+export const TAXONOMY_MATRIX: readonly TaxonomyEntry[] = [
+  {
+    id: "1.1_digital_software",
+    pillar: 1,
+    pillarLabel: "Asset-Based Revenue",
+    internalDescription:
+      "Digital Products & Software Assets — intangible assets written in code, media, or digital networks.",
+    customerModelLanguage:
+      "A digital tool built out of code — something people log into, download, or use through a screen.",
+  },
+  {
+    id: "1.2_physical_inventory",
+    pillar: 1,
+    pillarLabel: "Asset-Based Revenue",
+    internalDescription:
+      "Physical Products & Inventory Assets — tangible merchandise manufactured, stored, and shipped.",
+    customerModelLanguage:
+      "A premium physical product execution — something you make, stock, package, and ship into someone's hands.",
+  },
+  {
+    id: "1.3_media_content_ip",
+    pillar: 1,
+    pillarLabel: "Asset-Based Revenue",
+    internalDescription:
+      "Media, Content, & Intellectual Property — information architecture, brand loyalty, licensed creative outputs.",
+    customerModelLanguage:
+      "A content or media asset people follow, subscribe to, or pay to access.",
+  },
+  {
+    id: "2.1_solo_freelance",
+    pillar: 2,
+    pillarLabel: "Time- & Skill-Based Revenue",
+    internalDescription:
+      "Direct Freelance & Individual Services — solo operations exchanging skill for client capital.",
+    customerModelLanguage:
+      "A hands-on service you deliver yourself — trading your skill and time directly for pay.",
+  },
+  {
+    id: "2.2_agency_managed",
+    pillar: 2,
+    pillarLabel: "Time- & Skill-Based Revenue",
+    internalDescription:
+      "Agency & Managed Operational Models — labor arbitrage with teams or sub-contractors.",
+    customerModelLanguage:
+      "A managed service operation — you build a team or system that fulfills work at scale.",
+  },
+  {
+    id: "3.1_platform_marketplace",
+    pillar: 3,
+    pillarLabel: "Capital- & Facilitation-Based Revenue",
+    internalDescription:
+      "Multi-Sided Platforms & Marketplaces — matching buyers and sellers for transactional fees.",
+    customerModelLanguage:
+      "A platform connecting active buyers and sellers — you facilitate the match and take a cut.",
+  },
+  {
+    id: "3.2_affiliate_lead_gen",
+    pillar: 3,
+    pillarLabel: "Capital- & Facilitation-Based Revenue",
+    internalDescription:
+      "Affiliate Networks & Lead Generation — routing high-intent traffic for commission.",
+    customerModelLanguage:
+      "A traffic and referral engine — you send ready-to-buy people to someone else's checkout.",
+  },
+  {
+    id: "3.3_financial_capital",
+    pillar: 3,
+    pillarLabel: "Capital- & Facilitation-Based Revenue",
+    internalDescription:
+      "Financial Capital & Liquidity Markets — capital deployment for returns.",
+    customerModelLanguage:
+      "A capital deployment play — putting money to work and earning returns from the movement.",
+  },
+] as const;
+
+export const BUSINESS_CATEGORY_IDS = TAXONOMY_MATRIX.map(
+  (entry) => entry.id,
+) as BusinessCategoryId[];
+
+export function getTaxonomyEntry(
+  categoryId: string,
+): TaxonomyEntry | undefined {
+  return TAXONOMY_MATRIX.find((entry) => entry.id === categoryId);
+}
+
+export function isValidBusinessCategory(
+  categoryId: string,
+): categoryId is BusinessCategoryId {
+  return BUSINESS_CATEGORY_IDS.includes(categoryId as BusinessCategoryId);
+}
+
+export function isPendingCategory(categoryId: string): boolean {
+  return categoryId === PENDING_CATEGORY;
+}
+
+export function buildTriageMatrixPromptBlock(): string {
+  return TAXONOMY_MATRIX.map(
+    (entry) =>
+      `- ${entry.id}: ${entry.internalDescription} (customer mirror: "${entry.customerModelLanguage}")`,
+  ).join("\n");
+}
+
+export function getCustomerModelLanguage(categoryId: string): string {
+  return (
+    getTaxonomyEntry(categoryId)?.customerModelLanguage ??
+    "A venture we're mapping together"
+  );
+}

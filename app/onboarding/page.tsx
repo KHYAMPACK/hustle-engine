@@ -3,7 +3,9 @@
 import { blueprintToMetrics } from "@/lib/blueprint-schema";
 import type { VentureBlueprint } from "@/lib/blueprint-schema";
 import { LeanLedger } from "@/app/onboarding/LeanLedger";
-import { getMessageText, WELCOME_MESSAGE_TEXT } from "@/lib/chat-utils";
+import { getMessageText } from "@/lib/chat-utils";
+import { postGauntletChat } from "@/lib/ai/gauntlet/client";
+import type { ForcedChoices } from "@/lib/ai/gauntlet/types";
 import {
   extractFinalizeBlueprintFromMessages,
   messageHasFinalizeBlueprintTool,
@@ -24,9 +26,9 @@ import {
   updateGuestProjectMilestones,
   type ProjectRecord,
 } from "@/lib/projects";
+import { resetOnboardingSession } from "@/lib/onboarding-state";
 import { createClient } from "@/lib/supabase";
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { type UIMessage } from "ai";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   FormEvent,
@@ -41,7 +43,7 @@ import {
 const INITIAL_UI_MESSAGE: UIMessage = {
   id: "welcome",
   role: "assistant",
-  parts: [{ type: "text", text: WELCOME_MESSAGE_TEXT }],
+  parts: [{ type: "text", text: "Loading your session…" }],
 };
 
 const RISK_STYLES: Record<
@@ -617,6 +619,12 @@ function OnboardingPageInner() {
   const [isHydrating, setIsHydrating] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<UIMessage[]>([INITIAL_UI_MESSAGE]);
+  const [forcedChoices, setForcedChoices] = useState<ForcedChoices | null>(null);
+  const [isInputLocked, setIsInputLocked] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [openingLoaded, setOpeningLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const blueprintPersistedRef = useRef(false);
 
@@ -632,8 +640,54 @@ function OnboardingPageInner() {
     setPersistError(null);
   }
 
-  function handleNewVenture() {
+  function resetChatState() {
+    setMessages([INITIAL_UI_MESSAGE]);
+    setOpeningLoaded(false);
+    setForcedChoices(null);
+    setIsInputLocked(false);
+    setInput("");
+    setChatError(null);
+    setShowMatrix(false);
+    setBlueprint(null);
+    setProjectId(null);
+    setProjectIsActive(false);
+    blueprintPersistedRef.current = false;
+  }
+
+  async function resetConversation() {
+    if (!userId) {
+      return;
+    }
+
+    await resetOnboardingSession(supabase, userId, null);
+    resetChatState();
+  }
+
+  async function handleNewVenture() {
+    try {
+      await resetConversation();
+    } catch (resetError) {
+      setPersistError(
+        resetError instanceof Error
+          ? resetError.message
+          : "Failed to reset conversation.",
+      );
+    }
+
     router.push("/");
+  }
+
+  async function handleExitConversation() {
+    try {
+      await resetConversation();
+      router.push("/");
+    } catch (resetError) {
+      setChatError(
+        resetError instanceof Error
+          ? resetError.message
+          : "Failed to reset conversation.",
+      );
+    }
   }
 
   async function handleSignOut() {
@@ -689,13 +743,62 @@ function OnboardingPageInner() {
     );
   }
 
-  const { messages, sendMessage, status, error } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
-    messages: [INITIAL_UI_MESSAGE],
-    onFinish: ({ messages: finishedMessages }) => {
-      void persistBlueprintFromMessages(finishedMessages);
-    },
-  });
+  async function sendGauntletMessage(options?: {
+    nextMessages?: UIMessage[];
+    forcedChoice?: "a" | "b";
+    requestOpening?: boolean;
+  }) {
+    setIsChatLoading(true);
+    setChatError(null);
+
+    try {
+      const payload = await postGauntletChat({
+        messages: options?.nextMessages ?? messages,
+        projectId,
+        forcedChoice: options?.forcedChoice,
+        requestOpening: options?.requestOpening,
+      });
+
+      if (options?.requestOpening) {
+        setMessages([
+          {
+            id: "opening",
+            role: "assistant",
+            parts: [{ type: "text", text: payload.message }],
+          },
+        ]);
+      } else {
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            parts: [{ type: "text", text: payload.message }],
+          },
+        ]);
+      }
+
+      setForcedChoices(payload.forcedChoices);
+      setIsInputLocked(payload.isInputLocked);
+    } catch (requestError) {
+      setChatError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Chat request failed.",
+      );
+    } finally {
+      setIsChatLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!authChecked || isHydrating || showMatrix || projectIsActive || openingLoaded) {
+      return;
+    }
+
+    setOpeningLoaded(true);
+    void sendGauntletMessage({ requestOpening: true });
+  }, [authChecked, isHydrating, showMatrix, projectIsActive, openingLoaded]);
 
   async function persistBlueprintFromMessages(chatMessages: UIMessage[]) {
     if (blueprintPersistedRef.current || isSaving) {
@@ -776,7 +879,13 @@ function OnboardingPageInner() {
         const projects = await fetchAllGuestProjects(activeUserId);
         setAllProjects(projects);
 
-        if (startFresh || projects.length === 0) {
+        if (startFresh) {
+          await resetOnboardingSession(supabase, activeUserId, null);
+          resetChatState();
+          return;
+        }
+
+        if (projects.length === 0) {
           return;
         }
 
@@ -798,8 +907,9 @@ function OnboardingPageInner() {
     void hydrateFromSupabase();
   }, [startFresh, authChecked, userId]);
 
-  const isLoading = status === "submitted" || status === "streaming";
-  const chatLocked = showMatrix || projectIsActive || isHydrating;
+  const isLoading = isChatLoading;
+  const chatLocked =
+    showMatrix || projectIsActive || isHydrating || isInputLocked;
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -818,12 +928,40 @@ function OnboardingPageInner() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = input.trim();
-    if (!trimmed || isLoading || chatLocked) {
+    if (!trimmed || isLoading || chatLocked || isInputLocked) {
       return;
     }
 
-    sendMessage({ text: trimmed });
+    const userMessage: UIMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      parts: [{ type: "text", text: trimmed }],
+    };
+    const nextMessages = [...messages, userMessage];
+    setMessages(nextMessages);
     setInput("");
+    void sendGauntletMessage({ nextMessages });
+  }
+
+  function handleForcedChoice(choice: "a" | "b") {
+    if (isLoading) {
+      return;
+    }
+
+    const label =
+      choice === "a" ? forcedChoices?.a : forcedChoices?.b;
+    if (!label) {
+      return;
+    }
+
+    const userMessage: UIMessage = {
+      id: `user-choice-${Date.now()}`,
+      role: "user",
+      parts: [{ type: "text", text: label }],
+    };
+    const nextMessages = [...messages, userMessage];
+    setMessages(nextMessages);
+    void sendGauntletMessage({ nextMessages, forcedChoice: choice });
   }
 
   if (!authChecked || isHydrating) {
@@ -876,6 +1014,19 @@ function OnboardingPageInner() {
   return (
     <main className="flex flex-1 flex-col items-center px-4 py-8 sm:py-12">
       <div className="flex h-[min(720px,calc(100dvh-4rem))] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5">
+          <p className="text-xs font-medium tracking-[0.25em] text-muted uppercase">
+            Venture Scoping
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleExitConversation()}
+            className="text-xs font-medium text-muted transition-colors hover:text-foreground"
+          >
+            Exit
+          </button>
+        </div>
+
         <div
           ref={scrollRef}
           className="flex-1 space-y-6 overflow-y-auto px-5 py-8 sm:px-8"
@@ -929,10 +1080,34 @@ function OnboardingPageInner() {
               </div>
             )}
 
-          {error && (
+          {chatError && (
             <p className="text-center text-sm text-red-400" role="alert">
-              {error.message}
+              {chatError}
             </p>
+          )}
+
+          {isInputLocked && forcedChoices && (
+            <div className="flex flex-col gap-3 border-t border-border pt-4">
+              <p className="text-xs font-medium tracking-[0.2em] text-muted uppercase">
+                Pick one to continue
+              </p>
+              <button
+                type="button"
+                onClick={() => handleForcedChoice("a")}
+                disabled={isLoading}
+                className="rounded-sm border border-border px-4 py-3 text-left text-sm text-foreground transition-colors hover:border-foreground/40 hover:bg-foreground/[0.04] disabled:opacity-50"
+              >
+                {forcedChoices.a}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleForcedChoice("b")}
+                disabled={isLoading}
+                className="rounded-sm border border-border px-4 py-3 text-left text-sm text-foreground transition-colors hover:border-foreground/40 hover:bg-foreground/[0.04] disabled:opacity-50"
+              >
+                {forcedChoices.b}
+              </button>
+            </div>
           )}
         </div>
 
@@ -948,14 +1123,20 @@ function OnboardingPageInner() {
             type="text"
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Type your response..."
+            placeholder={
+              isInputLocked
+                ? "Choose an option above to continue…"
+                : "Type your response..."
+            }
             autoComplete="off"
-            disabled={isLoading || chatLocked}
+            disabled={isLoading || chatLocked || isInputLocked}
             className="min-h-11 flex-1 rounded-sm border border-border bg-transparent px-4 text-sm text-foreground placeholder:text-muted outline-none transition-colors focus:border-foreground/50 disabled:opacity-50"
           />
           <button
             type="submit"
-            disabled={!input.trim() || isLoading || chatLocked}
+            disabled={
+              !input.trim() || isLoading || chatLocked || isInputLocked
+            }
             className="flex h-11 shrink-0 items-center justify-center rounded-sm bg-foreground px-5 text-sm font-medium tracking-wide text-background transition-opacity enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Send

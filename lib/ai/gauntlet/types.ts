@@ -1,0 +1,178 @@
+export type EscalationAttempt = 1 | 2 | 3;
+
+export type GauntletStage = 1 | 2 | 3 | 4 | 5;
+
+export type BusinessCategoryId =
+  | "1.1_digital_software"
+  | "1.2_physical_inventory"
+  | "1.3_media_content_ip"
+  | "2.1_solo_freelance"
+  | "2.2_agency_managed"
+  | "3.1_platform_marketplace"
+  | "3.2_affiliate_lead_gen"
+  | "3.3_financial_capital";
+
+export type ExtractedData = Record<string, string>;
+
+export type DataPointGenerationMode = "user_input" | "ai_predict";
+
+export type ForcedChoices = {
+  a: string;
+  b: string;
+};
+
+export type GauntletException =
+  | "category_drift"
+  | "two_ideas"
+  | "circular_pivot"
+  | "budget_ambition_paradox"
+  | "premature_jump"
+  | "pivot_reset"
+  | null;
+
+export type OnboardingSessionState = {
+  projectId: string | null;
+  category: string;
+  currentStage: GauntletStage;
+  activeDataPoint: string;
+  escalationAttempt: EscalationAttempt;
+  isInputLocked: boolean;
+  /** True when activeDataPoint uses ai_predict generation routing. */
+  isCurrentFieldPredicted: boolean;
+  extractedData: ExtractedData;
+  forcedChoices: ForcedChoices | null;
+  activeException: GauntletException;
+  backwardEditCount: number;
+};
+
+export type DataPointDefinition = {
+  key: string;
+  stage: GauntletStage;
+  isFoundation: boolean;
+  /** Routes execution: user supplies vs AI predicts for user validation. */
+  generationMode: DataPointGenerationMode;
+  /** Pass A validation criteria — aligned with targetIntent semantics. */
+  analystCriteria: string;
+  /** Backend-only semantic goal; Pass B synthesizes from this, never quotes baseline verbatim. */
+  targetIntent: string;
+  /** Backend reference phrasing for intent alignment — NEVER surfaced verbatim in Pass B output. */
+  referenceBaseline: string;
+  guardrailFocus: string;
+  streetSmartLabel: string;
+  allowedValues?: readonly string[];
+};
+
+export type StageMask = {
+  stage: GauntletStage;
+  customerLanguage: string;
+};
+
+export type CategoryTrackConfig = {
+  id: string;
+  customerModelLanguage: string;
+  triageAliases: readonly string[];
+  stages: readonly StageMask[];
+  dataPoints: readonly DataPointDefinition[];
+};
+
+export type PassAAnalysis = {
+  activeDataPointQuality: "specific" | "vague" | "empty" | "forced_choice" | "clear";
+  activeDataPointValue: string | null;
+  extractedFields: Record<string, string | null>;
+  skippedFieldKeys: string[];
+  detectedCategory: string | null;
+  categoryDrift: boolean;
+  twoIdeasConflict: boolean;
+  pivotDetected: boolean;
+  budgetAmbitionParadox: boolean;
+  prematureStageJump: boolean;
+  backwardEditRequest: boolean;
+  forcedChoices: ForcedChoices | null;
+};
+
+export type TriagePassAAnalysis = {
+  classifiedCategory: BusinessCategoryId | null;
+  isPitchValid: boolean;
+  isSplitParadoxDetected: boolean;
+};
+
+export type PassBContext = {
+  state: OnboardingSessionState;
+  categoryConfig: CategoryTrackConfig | null;
+  passA: PassAAnalysis;
+  userMessage: string;
+  conversationSummary: string;
+  exceptionScript: GauntletException;
+  nextDataPoint: DataPointDefinition | null;
+  newlySkippedKeys: string[];
+  resolvedActiveValue: string | null;
+  isPendingOpening?: boolean;
+  triageJustCompleted?: boolean;
+  triageInvalidPitch?: boolean;
+  useVerbatimResponse?: string | null;
+};
+
+export type GauntletChatResponse = {
+  message: string;
+  state: OnboardingSessionState;
+  forcedChoices: ForcedChoices | null;
+  isInputLocked: boolean;
+};
+
+export const INITIAL_SESSION_DEFAULTS: Omit<
+  OnboardingSessionState,
+  "projectId" | "category" | "activeDataPoint"
+> = {
+  currentStage: 1,
+  escalationAttempt: 1,
+  isInputLocked: false,
+  isCurrentFieldPredicted: false,
+  extractedData: {},
+  forcedChoices: null,
+  activeException: null,
+  backwardEditCount: 0,
+};
+
+export const TAXONOMY_FORBIDDEN_PHRASES = [
+  "category",
+  "stage",
+  "data point",
+  "triage",
+  "routing you to",
+  "track",
+  "schema",
+  "escalation",
+  "attempt 1",
+  "attempt 2",
+  "attempt 3",
+  "pillar",
+  "1.1",
+  "1.2",
+  "1.3",
+  "2.1",
+  "2.2",
+  "3.1",
+  "3.2",
+  "3.3",
+  "digital_software",
+  "physical_inventory",
+  "platform_marketplace",
+] as const;
+
+export const EXCEPTION_SCRIPTS: Record<
+  Exclude<GauntletException, null>,
+  string
+> = {
+  category_drift:
+    "Switching from a digital tool to a physical storefront changes how we have to map out this business entirely. The strategy we're mapping right now is engineered for an online platform. If you want to pivot to a physical location strategy, we need to reset and run that model instead. Do you want to switch gears completely, or keep focusing on the digital platform side?",
+  two_ideas:
+    "Whoa, hold on. A dentist scheduling tool and a mushroom farming business are two entirely different universes. We can't build an engine for both at the same time. Pick one to run through the gauntlet right now—we can stress-test the other one later.",
+  circular_pivot:
+    "Understood. Let's update the foundation. If we are shifting the focus to gym owners instead of who we talked about earlier, that changes the main problem we are solving. Let's lock this new audience in first: what is the single biggest operational headache these gym owners face daily?",
+  budget_ambition_paradox:
+    "The build path you're describing needs real cash and hours behind it. Right now the math doesn't add up—a heavy custom build on zero budget and a couple hours a week burns runway without moving the needle. We need to balance what you're willing to spend and the time you can actually put in before we map the next step.",
+  premature_jump:
+    "Worrying about manufacturing logistics, building a custom app, or buying inventory right now is a massive trap. If we don't lock down the exact friction of your starting customer first, we risk spending thousands building a perfect solution for a problem that nobody actually has. Let's secure the foundation before we buy any tools: who is experiencing this pain point daily?",
+  pivot_reset:
+    "Understood. Shifting from an online skincare brand to a local physical spa changes how the business works completely. Let's briefly re-verify your core target customer and the main reason they are paying you for this new direction before we map out the operational setup again.",
+};
