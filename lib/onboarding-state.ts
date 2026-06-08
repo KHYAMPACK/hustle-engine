@@ -26,7 +26,7 @@
 
 import { formatUnknownError } from "@/lib/format-error";
 import { createPendingSessionState } from "@/lib/ai/gauntlet/triage";
-import { getCategoryConfig } from "@/lib/ai/gauntlet/category-registry";
+import { getCategoryConfig, resolveClassifiedCategory } from "@/lib/ai/gauntlet/category-registry";
 import { syncActiveDataPointPredictionFlag } from "@/lib/ai/gauntlet/state-machine";
 import { isPendingCategory } from "@/lib/ai/gauntlet/taxonomy";
 import type {
@@ -74,21 +74,56 @@ function rowToState(row: OnboardingSessionRow): OnboardingSessionState {
   });
 }
 
+function repairLockedSessionState(
+  state: Omit<OnboardingSessionState, "isCurrentFieldPredicted">,
+): Omit<OnboardingSessionState, "isCurrentFieldPredicted"> {
+  const resolvedCategory =
+    resolveClassifiedCategory(state.category) ?? state.category;
+
+  let next: Omit<OnboardingSessionState, "isCurrentFieldPredicted"> = {
+    ...state,
+    category: resolvedCategory,
+  };
+
+  if (!next.isInputLocked || next.forcedChoices) {
+    return next;
+  }
+
+  const fallbackChoices: ForcedChoices =
+    next.activeException === "budget_ambition_paradox"
+      ? {
+          a: "Scale the build down to match the budget and hours we actually have.",
+          b: "Increase budget or weekly hours before we commit to this heavier build path.",
+        }
+      : {
+          a: "Double down on the immediate, high-pain group we just discussed.",
+          b: "Pivot to a completely separate alternative angle to test first.",
+        };
+
+  return {
+    ...next,
+    forcedChoices: fallbackChoices,
+    escalationAttempt: 3,
+  };
+}
+
 function hydrateSessionState(
   state: Omit<OnboardingSessionState, "isCurrentFieldPredicted">,
 ): OnboardingSessionState {
-  if (isPendingCategory(state.category)) {
-    return { ...state, isCurrentFieldPredicted: false };
+  const repaired = repairLockedSessionState(state);
+
+  if (isPendingCategory(repaired.category)) {
+    return { ...repaired, isCurrentFieldPredicted: false };
   }
 
   try {
-    const config = getCategoryConfig(state.category);
+    const config = getCategoryConfig(repaired.category);
     return syncActiveDataPointPredictionFlag(
-      { ...state, isCurrentFieldPredicted: false },
+      { ...repaired, isCurrentFieldPredicted: false },
       config,
     );
   } catch {
-    return { ...state, isCurrentFieldPredicted: false };
+    return { ...repaired, isCurrentFieldPredicted: false };
   }
 }
 

@@ -1,6 +1,9 @@
 import { processGauntletTurn } from "@/lib/ai/gauntlet/process-turn";
 import { formatUnknownError } from "@/lib/format-error";
-import { isGeminiCapacityError } from "@/lib/ai/gemini-client";
+import {
+  isGeminiNetworkError,
+  isGeminiUnavailableError,
+} from "@/lib/ai/gemini-client";
 import {
   getOrCreateOnboardingSession,
   saveOnboardingSession,
@@ -70,7 +73,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Gauntlet chat pipeline error:", error);
     const details = formatUnknownError(error);
-    const status = isGeminiCapacityError(error)
+    const status = isGeminiUnavailableError(error)
       ? 503
       : details.includes("onboarding_sessions") && details.includes("Could not find")
         ? 503
@@ -79,11 +82,13 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          status === 503 && isGeminiCapacityError(error)
-            ? "AI temporarily unavailable"
-            : status === 503
-              ? "Database setup required"
-              : "Internal processing error",
+          status === 503 && isGeminiNetworkError(error)
+            ? "AI connection failed"
+            : status === 503 && isGeminiUnavailableError(error)
+              ? "AI temporarily unavailable"
+              : status === 503
+                ? "Database setup required"
+                : "Internal processing error",
         details,
       },
       { status },

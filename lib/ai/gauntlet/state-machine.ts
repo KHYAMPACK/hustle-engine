@@ -12,6 +12,7 @@ import {
 import type {
   CategoryTrackConfig,
   EscalationAttempt,
+  ForcedChoices,
   GauntletException,
   OnboardingSessionState,
   PassAAnalysis,
@@ -19,6 +20,27 @@ import type {
 
 const VAGUE_QUALIFIERS =
   /\b(anyone|everyone|everybody|people|users|customers|small businesses?|businesses?|companies?|folks|someone|something|stuff|things|maybe|probably|kind of|sort of|etc\.?)\b/i;
+
+const DEFAULT_ESCALATION_FORCED_CHOICES: ForcedChoices = {
+  a: "Double down on the immediate, high-pain group we just discussed.",
+  b: "Pivot to a completely separate alternative angle to test first.",
+};
+
+const BUDGET_AMBITION_FORCED_CHOICES: ForcedChoices = {
+  a: "Scale the build down to match the budget and hours we actually have.",
+  b: "Increase budget or weekly hours before we commit to this heavier build path.",
+};
+
+function resolveForcedChoices(
+  incoming: ForcedChoices | null | undefined,
+  fallback: ForcedChoices = DEFAULT_ESCALATION_FORCED_CHOICES,
+): ForcedChoices {
+  if (incoming?.a?.trim() && incoming?.b?.trim()) {
+    return { a: incoming.a.trim(), b: incoming.b.trim() };
+  }
+
+  return fallback;
+}
 
 export function isVagueValue(value: string): boolean {
   const trimmed = value.trim();
@@ -155,7 +177,11 @@ export function applyPassAToState(
       {
         activeException: "budget_ambition_paradox",
         isInputLocked: true,
-        forcedChoices: passA.forcedChoices,
+        forcedChoices: resolveForcedChoices(
+          passA.forcedChoices,
+          BUDGET_AMBITION_FORCED_CHOICES,
+        ),
+        escalationAttempt: 3,
       },
       {
         exceptionScript: "budget_ambition_paradox",
@@ -210,7 +236,7 @@ export function applyPassAToState(
         {
           activeException: "circular_pivot",
           isInputLocked: true,
-          forcedChoices: passA.forcedChoices,
+          forcedChoices: resolveForcedChoices(passA.forcedChoices),
           escalationAttempt: 3,
         },
         {
@@ -288,7 +314,7 @@ export function applyPassAToState(
       {
         escalationAttempt: 3,
         isInputLocked: true,
-        forcedChoices: passA.forcedChoices,
+        forcedChoices: resolveForcedChoices(passA.forcedChoices),
       },
       {
         exceptionScript,
@@ -306,7 +332,7 @@ export function applyPassAToState(
         {
           escalationAttempt: 3,
           isInputLocked: true,
-          forcedChoices: passA.forcedChoices,
+          forcedChoices: resolveForcedChoices(passA.forcedChoices),
         },
         {
           exceptionScript,

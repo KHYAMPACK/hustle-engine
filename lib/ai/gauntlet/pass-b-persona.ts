@@ -6,6 +6,7 @@ import {
 } from "@/lib/ai/gauntlet/category-registry";
 import type {
   CategoryTrackConfig,
+  DataPointDefinition,
   OnboardingSessionState,
   PassBContext,
 } from "@/lib/ai/gauntlet/types";
@@ -20,7 +21,7 @@ function buildLoggedIngredientsBlock(
   excludeKey?: string,
 ): string {
   if (!categoryConfig) {
-    return "No prior milestones locked yet.";
+    return "No prior milestones logged yet.";
   }
 
   const lines = categoryConfig.dataPoints
@@ -36,7 +37,32 @@ function buildLoggedIngredientsBlock(
 
   return lines.length > 0
     ? lines.join("\n")
-    : "No prior milestones locked yet — infer only from the user message and conversation summary.";
+    : "No prior milestones logged yet — infer only from the user message and conversation summary.";
+}
+
+function getSecuredMilestonePoint(
+  categoryConfig: CategoryTrackConfig | null,
+  state: OnboardingSessionState,
+  resolvedActiveValue: string | null,
+): DataPointDefinition | null {
+  if (!categoryConfig || !resolvedActiveValue) {
+    return null;
+  }
+
+  const trimmedValue = resolvedActiveValue.trim();
+  const activeIndex = categoryConfig.dataPoints.findIndex(
+    (point) => point.key === state.activeDataPoint,
+  );
+
+  if (activeIndex > 0) {
+    return categoryConfig.dataPoints[activeIndex - 1] ?? null;
+  }
+
+  const matchingPoint = categoryConfig.dataPoints.find(
+    (point) => state.extractedData[point.key]?.trim() === trimmedValue,
+  );
+
+  return matchingPoint ?? null;
 }
 
 function buildPassBPrompt(context: PassBContext): string {
@@ -140,18 +166,46 @@ ${loggedIngredientsBlock}
 - STREET-SMART THEME: ${activePoint?.streetSmartLabel ?? "Next detail"}
 - ACTION: Use the logged ingredients above. Do the heavy lifting and GENERATE the exact, tailored strategic solutions or text options for this field yourself right now.
 - THE OUTPUT FORMAT:
-  1. State your proposed value clearly with concrete, ready-to-lock content tailored to this track.
-  2. End with exactly one scannable sentence asking if they want to lock this into the engine or adjust it.`
+  1. State your proposed value clearly with concrete, tailored content for this track.
+  2. Close with exactly one sharp, high-conviction momentum question that propels a decisive response—whether this hits the nail on the head or captures the exact execution angle they want to attack. Never use passive confirm/adjust phrasing.`
     : "";
 
+  const securedMilestone = getSecuredMilestonePoint(
+    categoryConfig,
+    state,
+    resolvedActiveValue,
+  );
+
+  const resolvedValueDirective =
+    resolvedActiveValue && securedMilestone
+      ? `MILESTONE SECURED (mandatory opening — first 1-2 sentences)
+- Open by explicitly stating that "${securedMilestone.streetSmartLabel}" is now locked and secured into our strategy layout.
+- Briefly anchor what we captured in plain business language: "${resolvedActiveValue.trim()}"
+- Then pivot immediately to the next focus below. Do not re-ask what they just confirmed.`
+      : resolvedActiveValue
+        ? `MILESTONE SECURED (mandatory opening — first 1-2 sentences)
+- Open by explicitly stating the milestone we just captured is locked and secured into our strategy layout.
+- Anchor the secured value in plain language: "${resolvedActiveValue.trim()}"
+- Then pivot immediately to the next focus below.`
+        : "";
+
+  const isForcedChoiceUiActive =
+    state.isInputLocked || Boolean(state.forcedChoices);
+
   const attemptInstructions =
-    escalation === 1
-      ? state.isCurrentFieldPredicted
-        ? "ATTEMPT 1 — PREDICTIVE GENERATION: Follow PREDICTIVE GENERATION MODE below. Output concrete proposals — never an open-ended question."
-        : "ATTEMPT 1 — OPEN FIELD: Follow ACTIVE DATA POINT SYNTHESIS below. One question only."
-      : escalation === 2
-        ? `ATTEMPT 2 — GUARDRAILS: Do NOT accept fluff. Structure: [Objective critique via everyday analogy] + [Why vague answers burn their time/cash] + [One tighter question with a micro-example]. Focus: ${activePoint?.guardrailFocus ?? ""}. Target intent: ${activePoint?.targetIntent ?? "unknown"}. Never quote the reference baseline.`
-        : `ATTEMPT 3 — FORCED CHOICE: Do NOT ask an open question. Present the two options already locked in the UI (${state.forcedChoices?.a} vs ${state.forcedChoices?.b}) in natural language and tell them to pick one to continue.`;
+    isForcedChoiceUiActive && state.forcedChoices
+      ? `FORCED CHOICE (UI LOCKED — ignore escalation tier ${escalation}): Do NOT ask an open question. The text input is disabled and two option buttons are visible in the UI. Frame the entire response around choosing between Option A and Option B. Tell them to tap the button that matches their call.
+- Option A: ${state.forcedChoices.a}
+- Option B: ${state.forcedChoices.b}`
+      : isForcedChoiceUiActive
+        ? `FORCED CHOICE (UI LOCKED — ignore escalation tier ${escalation}): The text input is disabled. Do NOT ask a new open-ended question. Direct them to pick one of the two buttons in the UI to continue.`
+        : escalation === 1
+          ? state.isCurrentFieldPredicted
+            ? "ATTEMPT 1 — PREDICTIVE GENERATION: Follow PREDICTIVE GENERATION MODE below. Output concrete proposals, then close with one high-conviction momentum question—never an open-ended ask."
+            : "ATTEMPT 1 — OPEN FIELD: Follow ACTIVE DATA POINT SYNTHESIS below. One question only."
+          : escalation === 2
+            ? `ATTEMPT 2 — GUARDRAILS: Do NOT accept fluff. Structure: [Objective critique via everyday analogy] + [Why vague answers burn their time/cash] + [One tighter question with a micro-example]. Focus: ${activePoint?.guardrailFocus ?? ""}. Target intent: ${activePoint?.targetIntent ?? "unknown"}. Never quote the reference baseline.`
+            : `ATTEMPT 3 — FORCED CHOICE: Do NOT ask an open question. Present the two options already locked in the UI (${state.forcedChoices?.a} vs ${state.forcedChoices?.b}) in natural language and tell them to pick one to continue.`;
 
   const triageWelcomeBlock = triageJustCompleted
     ? `TRIAGE WELCOME (mandatory this turn)
@@ -170,6 +224,7 @@ PERSONA (strict)
 - Use "we" and "let's" during pushback — sit beside the user, not above them.
 - Zero jargon. Generate dynamic, domain-specific analogies that directly match the user's business category (e.g., mechanical/utility tools for digital software, physical infrastructure for inventory, traffic flow for marketplaces, audience pipelines for content).
 - Single-threaded: ONE primary question or ONE forced-choice instruction per reply. Never double-prompt.
+- MOMENTUM CLOSING: When presenting AI-generated proposals, end with one sharp, high-conviction question that drives the next move forward. Ban passive confirm/adjust phrasing (e.g., never ask to "lock this in", "save this", or "adjust it").
 - STRUCTURAL LAYOUT (strict):
   1. TOTAL LENGTH LIMIT: 3 to 5 sentences maximum — strictly under 90 words total.
   2. PARAGRAPH BREAKING: Break text into short, highly digestible 1-2 sentence chunks. Completely ban solid blocks or walls of text.
@@ -180,14 +235,14 @@ ${TAXONOMY_FORBIDDEN_PHRASES.join(", ")}
 
 ${triageWelcomeBlock}
 
-ALLOWED CUSTOMER LANGUAGE FOR THIS IDEA TYPE
+${resolvedValueDirective ? `${resolvedValueDirective}\n` : ""}ALLOWED CUSTOMER LANGUAGE FOR THIS IDEA TYPE
 ${categoryConfig?.customerModelLanguage ?? "A venture we are mapping together"}
 
 CURRENT CONVERSATIONAL FOCUS (masked)
 - Theme: ${stageLanguage}
 - Street-smart theme: ${activePoint?.streetSmartLabel ?? "Next detail"}
-${escalation < 3 && !state.isCurrentFieldPredicted && synthesisDirective ? `\n${synthesisDirective}` : ""}
-${escalation < 3 && state.isCurrentFieldPredicted && predictionDirective ? `\n${predictionDirective}` : ""}
+${!isForcedChoiceUiActive && escalation < 3 && !state.isCurrentFieldPredicted && synthesisDirective ? `\n${synthesisDirective}` : ""}
+${!isForcedChoiceUiActive && escalation < 3 && state.isCurrentFieldPredicted && predictionDirective ? `\n${predictionDirective}` : ""}
 
 ESCALATION TIER: ${escalation}
 ${attemptInstructions}
@@ -204,9 +259,6 @@ USER MESSAGE
 CONVERSATION SUMMARY
 ${conversationSummary || "Opening turn."}
 
-RESOLVED VALUE THIS TURN
-${resolvedActiveValue ?? "None"}
-
 Output ONLY the assistant message text — no JSON, no markdown fences.`;
 }
 
@@ -218,7 +270,7 @@ export async function runPassBPersona(context: PassBContext): Promise<string> {
   const prompt = buildPassBPrompt(context);
 
   const response = await generateContentWithRetry({
-    model: "gemini-2.5-flash",
+    model: "gemini-2.5-flash-lite",
     contents: prompt,
     config: {
       temperature: 0.65,

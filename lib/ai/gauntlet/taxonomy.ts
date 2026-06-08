@@ -12,13 +12,40 @@ export type TaxonomyEntry = {
 
 export const TAXONOMY_MATRIX: readonly TaxonomyEntry[] = [
   {
-    id: "1.1_digital_software",
+    id: "1.1A_static_assets",
     pillar: 1,
     pillarLabel: "Asset-Based Revenue",
     internalDescription:
-      "Digital Products & Software Assets — intangible assets written in code, media, or digital networks.",
+      "Static Informational & Design Assets (Information/Content Artifacts) — non-executable, downloadable files that transfer knowledge, process structure, or visual layouts; user interaction stops immediately after download. Examples: Notion workspace templates, Figma UI kits, e-books, Excel financial models, preset packs. Roadmap: audience validation & outline → asset creation → packaging & deliverability → Gumroad/Lemon Squeezy/Etsy distribution.",
     customerModelLanguage:
-      "A digital tool built out of code — something people log into, download, or use through a screen.",
+      "A downloadable digital asset — templates, kits, models, or guides someone buys once and uses offline, with no software left running after the file lands.",
+  },
+  {
+    id: "1.1B_ecosystem_extensions",
+    pillar: 1,
+    pillarLabel: "Asset-Based Revenue",
+    internalDescription:
+      "Platform-Dependent Extensions & Plug-ins (Symbiotic Software) — micro-software engineered to augment, customize, or sit on top of an existing parent ecosystem, relying completely on the host platform's APIs. Examples: Chrome extensions, WordPress plug-ins, Figma widgets, Shopify apps, Obsidian extensions. Roadmap: API investigation → local core development → host compliance testing → store submission & review.",
+    customerModelLanguage:
+      "An extension or plug-in built for one host platform — it augments Chrome, WordPress, Figma, Shopify, or similar through that platform's APIs.",
+  },
+  {
+    id: "1.1C_experiential_software",
+    pillar: 1,
+    pillarLabel: "Asset-Based Revenue",
+    internalDescription:
+      "Interactive, Simulation, & Entertainment Assets (Experiential Software) — high-fidelity software built on runtime engines where value is driven by interactive visual experiences, simulation mechanics, or complex local graphics loops. Examples: mobile games, Web3/VR environments, simulation engines, standalone desktop utilities. Roadmap: core mechanics & greyboxing → asset pipeline integration → game/loop balancing → deployment & engine export (iOS, Android, Steam, WebGL).",
+    customerModelLanguage:
+      "An interactive experience built on a runtime engine — games, simulations, or standalone utilities where the playable loop and visual experience are the product.",
+  },
+  {
+    id: "1.1D_cloud_utility_saas",
+    pillar: 1,
+    pillarLabel: "Asset-Based Revenue",
+    internalDescription:
+      "Cloud-Based Utility Engines (SaaS / Web Apps) — centralized software architectures that solve ongoing procedural, functional, or business problems with data persistence, continuous hosting, multi-tenant databases, and ongoing maintenance. Examples: micro-SaaS analytics tools, project management web apps, custom client portals, AI-wrapper tools. Roadmap: database & architecture design → backend & logic implementation → frontend & authentication → deployment & billing infrastructure (Stripe, CI/CD, cloud hosting).",
+    customerModelLanguage:
+      "A cloud web app or micro-SaaS people log into over time — hosted accounts, saved data, and software that keeps solving an ongoing business or workflow problem.",
   },
   {
     id: "1.2_physical_inventory",

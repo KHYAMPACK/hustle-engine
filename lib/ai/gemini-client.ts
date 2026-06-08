@@ -1,3 +1,4 @@
+import { formatUnknownError } from "@/lib/format-error";
 import { GoogleGenAI } from "@google/genai";
 
 /** Models verified for generateContent on the current Gemini API (v1beta). */
@@ -7,8 +8,8 @@ const MODEL_FALLBACK_CHAIN = [
   "gemini-2.0-flash",
 ] as const;
 
-const MAX_RETRIES_PER_MODEL = 2;
-const BASE_RETRY_DELAY_MS = 1000;
+const MAX_RETRIES_PER_MODEL = 3;
+const BASE_RETRY_DELAY_MS = 1500;
 
 let client: GoogleGenAI | null = null;
 
@@ -100,8 +101,43 @@ export class GeminiCapacityError extends Error {
   }
 }
 
+export class GeminiNetworkError extends Error {
+  constructor(
+    message = "Could not reach Google AI. Check your internet connection, VPN, or firewall, then try again.",
+  ) {
+    super(message);
+    this.name = "GeminiNetworkError";
+  }
+}
+
+export function isGeminiNetworkError(error: unknown): boolean {
+  if (error instanceof GeminiNetworkError) {
+    return true;
+  }
+
+  const message = formatUnknownError(error).toLowerCase();
+  return (
+    message.includes("fetch failed") ||
+    message.includes("connect timeout") ||
+    message.includes("enotfound") ||
+    message.includes("getaddrinfo") ||
+    message.includes("econnreset") ||
+    message.includes("etimedout") ||
+    message.includes("network request failed") ||
+    message.includes("failed to fetch")
+  );
+}
+
+function isRetryableNetworkError(error: unknown): boolean {
+  return isGeminiNetworkError(error);
+}
+
 export function isGeminiCapacityError(error: unknown): boolean {
   return error instanceof GeminiCapacityError || isRetryableGeminiError(error);
+}
+
+export function isGeminiUnavailableError(error: unknown): boolean {
+  return isGeminiCapacityError(error) || isGeminiNetworkError(error);
 }
 
 export async function generateContentWithRetry(
@@ -115,6 +151,7 @@ export async function generateContentWithRetry(
 
   let lastError: unknown;
   let sawCapacityError = false;
+  let sawNetworkError = false;
 
   for (const model of modelChain) {
     for (let attempt = 0; attempt < MAX_RETRIES_PER_MODEL; attempt += 1) {
@@ -130,15 +167,21 @@ export async function generateContentWithRetry(
           sawCapacityError = true;
         }
 
+        if (isRetryableNetworkError(error)) {
+          sawNetworkError = true;
+        }
+
         if (isModelNotFoundError(error)) {
           break;
         }
 
-        const canRetry =
-          isRetryableGeminiError(error) && attempt < MAX_RETRIES_PER_MODEL - 1;
+        const retryable =
+          isRetryableGeminiError(error) || isRetryableNetworkError(error);
+        const canRetry = retryable && attempt < MAX_RETRIES_PER_MODEL - 1;
 
         if (canRetry) {
-          await sleep(BASE_RETRY_DELAY_MS * 2 ** attempt);
+          const networkMultiplier = isRetryableNetworkError(error) ? 2 : 1;
+          await sleep(BASE_RETRY_DELAY_MS * networkMultiplier * 2 ** attempt);
           continue;
         }
 
@@ -147,8 +190,16 @@ export async function generateContentWithRetry(
     }
   }
 
+  if (sawNetworkError) {
+    throw new GeminiNetworkError();
+  }
+
   if (sawCapacityError) {
     throw new GeminiCapacityError();
+  }
+
+  if (isGeminiNetworkError(lastError)) {
+    throw new GeminiNetworkError();
   }
 
   if (isGeminiCapacityError(lastError)) {

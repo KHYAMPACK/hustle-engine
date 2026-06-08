@@ -3,7 +3,10 @@ export type EscalationAttempt = 1 | 2 | 3;
 export type GauntletStage = 1 | 2 | 3 | 4 | 5;
 
 export type BusinessCategoryId =
-  | "1.1_digital_software"
+  | "1.1A_static_assets"
+  | "1.1B_ecosystem_extensions"
+  | "1.1C_experiential_software"
+  | "1.1D_cloud_utility_saas"
   | "1.2_physical_inventory"
   | "1.3_media_content_ip"
   | "2.1_solo_freelance"
@@ -147,6 +150,10 @@ export const TAXONOMY_FORBIDDEN_PHRASES = [
   "attempt 3",
   "pillar",
   "1.1",
+  "1.1a",
+  "1.1b",
+  "1.1c",
+  "1.1d",
   "1.2",
   "1.3",
   "2.1",
@@ -154,7 +161,10 @@ export const TAXONOMY_FORBIDDEN_PHRASES = [
   "3.1",
   "3.2",
   "3.3",
-  "digital_software",
+  "static_assets",
+  "ecosystem_extensions",
+  "experiential_software",
+  "cloud_utility_saas",
   "physical_inventory",
   "platform_marketplace",
 ] as const;

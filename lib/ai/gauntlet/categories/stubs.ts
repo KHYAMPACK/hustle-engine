@@ -20,8 +20,12 @@ function buildFoundationOnlyConfig(entry: TaxonomyEntry): CategoryTrackConfig {
   };
 }
 
+const FULL_QUESTIONNAIRE_CATEGORY_IDS = new Set<string>([
+  "1.1D_cloud_utility_saas",
+]);
+
 export const stubCategoryConfigs: CategoryTrackConfig[] = TAXONOMY_MATRIX.filter(
-  (entry) => entry.id !== "1.1_digital_software",
+  (entry) => !FULL_QUESTIONNAIRE_CATEGORY_IDS.has(entry.id),
 ).map(buildFoundationOnlyConfig);
 
 export function isRegisteredCategory(categoryId: string): boolean {

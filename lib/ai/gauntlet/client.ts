@@ -19,20 +19,40 @@ export type GauntletChatRequest = {
 export async function postGauntletChat(
   body: GauntletChatRequest,
 ): Promise<GauntletChatPayload> {
-  const response = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
 
-  const payload = (await response.json()) as GauntletChatPayload & {
+  try {
+    response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    throw new Error(
+      formatUnknownError(error).includes("Failed to fetch")
+        ? "Could not reach the server. Make sure the app is running and try again."
+        : formatUnknownError(error),
+    );
+  }
+
+  let payload = {} as GauntletChatPayload & {
     error?: string;
     details?: string;
   };
 
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    throw new Error(
+      response.ok
+        ? "The server returned an invalid response."
+        : `Chat request failed (${response.status}).`,
+    );
+  }
+
   if (!response.ok) {
     const message = formatUnknownError(
-      payload.details ?? payload.error ?? "Chat request failed.",
+      payload.error ?? payload.details ?? "Chat request failed.",
     );
     throw new Error(message);
   }

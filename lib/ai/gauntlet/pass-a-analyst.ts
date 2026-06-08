@@ -8,6 +8,7 @@ import {
 } from "@/lib/ai/gauntlet/category-registry";
 import {
   buildTriageMatrixPromptBlock,
+  BUSINESS_CATEGORY_IDS,
   isPendingCategory,
 } from "@/lib/ai/gauntlet/taxonomy";
 import type {
@@ -27,8 +28,14 @@ Temperature is zero. You never speak to the user directly.
 
 The session category is "pending". The user is delivering their open-ended business pitch.
 
-8-CATEGORY TAXONOMY MATRIX (classify into exactly ONE key):
+VENTURE TAXONOMY MATRIX (${BUSINESS_CATEGORY_IDS.length} tracks — classify into exactly ONE key, including four 1.1 digital sub-tracks):
 ${buildTriageMatrixPromptBlock()}
+
+CLASSIFICATION HINTS FOR 1.1 SUB-TRACKS
+- 1.1A_static_assets — downloadable files/templates/kits/e-books; value ends at download.
+- 1.1B_ecosystem_extensions — plug-ins, extensions, or apps living inside another platform's API/store.
+- 1.1C_experiential_software — games, simulations, VR/runtime-engine interactive experiences.
+- 1.1D_cloud_utility_saas — hosted web apps, micro-SaaS, portals, recurring cloud utilities with accounts/data.
 
 CONVERSATION SUMMARY
 ${conversationSummary || "First pitch turn."}
@@ -95,7 +102,7 @@ RULES
 4. Flag twoIdeasConflict if two unrelated businesses appear in one message.
 5. Flag pivotDetected if the user explicitly changes direction (new model, new audience, new product type).
 6. Flag prematureStageJump if the user talks about build/ops/pricing before foundation keys are populated in extracted data AND their message jumps ahead.
-7. Flag budgetAmbitionParadox if they want heavy custom build with ~$0 budget and minimal weekly hours.
+7. Flag budgetAmbitionParadox if they want heavy custom build with ~$0 budget and minimal weekly hours. When true, forcedChoices is REQUIRED — two tradeoff options (scope down vs increase budget/hours).
 8. Flag backwardEditRequest if they ask to rewrite an earlier answer.
 9. Mark active answer "vague" for weak qualifiers like "anyone", "small businesses", or under-specific text.
 10. Mark "specific" only when actionable and concrete per the active criteria.
@@ -119,16 +126,7 @@ export async function runTriagePassA(
         properties: {
           classifiedCategory: {
             type: Type.STRING,
-            enum: [
-              "1.1_digital_software",
-              "1.2_physical_inventory",
-              "1.3_media_content_ip",
-              "2.1_solo_freelance",
-              "2.2_agency_managed",
-              "3.1_platform_marketplace",
-              "3.2_affiliate_lead_gen",
-              "3.3_financial_capital",
-            ],
+            enum: [...BUSINESS_CATEGORY_IDS],
             nullable: true,
           },
           isPitchValid: { type: Type.BOOLEAN },
@@ -231,6 +229,13 @@ export async function runPassAAnalyst(
 
   if (parsed.detectedCategory) {
     parsed.detectedCategory = resolveClassifiedCategory(parsed.detectedCategory);
+  }
+
+  if (parsed.budgetAmbitionParadox && !parsed.forcedChoices) {
+    parsed.forcedChoices = {
+      a: "Scale the build down to match the budget and hours we actually have.",
+      b: "Increase budget or weekly hours before we commit to this heavier build path.",
+    };
   }
 
   if (

@@ -209,19 +209,21 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
 ];
 
 export const digitalSoftwareCategoryConfig: CategoryTrackConfig = {
-  id: "1.1_digital_software",
-  customerModelLanguage: getCustomerModelLanguage("1.1_digital_software"),
+  id: "1.1D_cloud_utility_saas",
+  customerModelLanguage: getCustomerModelLanguage("1.1D_cloud_utility_saas"),
   triageAliases: [
     "saas_digital",
-    "digital_product",
-    "software",
     "digital_software",
+    "cloud_utility_saas",
+    "micro_saas",
+    "web_app",
+    "software",
   ],
   stages: DIGITAL_SOFTWARE_STAGE_MASKS,
   dataPoints: DIGITAL_SOFTWARE_DATA_POINTS,
 };
 
-/** All evaluation keys for Category 1.1 — used when initializing extractedData JSONB. */
+/** All evaluation keys for Category 1.1D — used when initializing extractedData JSONB. */
 export const DIGITAL_SOFTWARE_EVALUATION_KEYS = DIGITAL_SOFTWARE_DATA_POINTS.map(
   (point) => point.key,
 );
