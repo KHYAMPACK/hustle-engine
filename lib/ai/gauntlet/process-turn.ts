@@ -152,6 +152,7 @@ export async function processGauntletTurn(
     }
 
     const categoryConfig = getCategoryConfig(state.category);
+    const passAActiveDataPointKey = state.activeDataPoint;
     const passA = await runPassAAnalyst(
       state,
       userMessage,
@@ -170,6 +171,7 @@ export async function processGauntletTurn(
       state,
       categoryConfig,
       passA,
+      passAActiveDataPointKey,
       userMessage,
       conversationSummary,
       exceptionScript: transition.exceptionScript,
@@ -223,6 +225,7 @@ export async function processGauntletTurn(
         : input.session.forcedChoices.b
       : null;
 
+  const passAActiveDataPointKey = state.activeDataPoint;
   const transition = applyPassAToState(
     state,
     passA,
@@ -249,6 +252,7 @@ export async function processGauntletTurn(
     state,
     categoryConfig: activeConfig,
     passA,
+    passAActiveDataPointKey,
     userMessage: forcedChoiceLabel ?? userMessage,
     conversationSummary,
     exceptionScript,

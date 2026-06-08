@@ -1210,6 +1210,7 @@ function OnboardingPageInner() {
       {showGauntletDebug && (
         <GauntletDebugPanel
           state={sessionState}
+          messages={messages}
           onDismiss={() => setShowGauntletDebug(false)}
         />
       )}

@@ -140,6 +140,8 @@ export type PassBContext = {
   state: OnboardingSessionState;
   categoryConfig: CategoryTrackConfig | null;
   passA: PassAAnalysis;
+  /** Active data point key at Pass A evaluation time (before state commit). */
+  passAActiveDataPointKey?: string;
   userMessage: string;
   conversationSummary: string;
   exceptionScript: GauntletException;

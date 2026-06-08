@@ -136,6 +136,72 @@ export function detectExperientialArchetype(
   return resolveHighestScoringArchetype(scores);
 }
 
+export type ExperientialArchetypeDebugReport = {
+  inferredText: string;
+  winner: ExperientialArchetype;
+  maxScore: number;
+  scores: Record<ScorableExperientialArchetype, number>;
+  tiedAtMax: ScorableExperientialArchetype[];
+};
+
+function emptyArchetypeScores(): Record<ScorableExperientialArchetype, number> {
+  return ARCHETYPE_TIE_BREAK_PRIORITY.reduce(
+    (scores, archetype) => {
+      scores[archetype] = 0;
+      return scores;
+    },
+    {} as Record<ScorableExperientialArchetype, number>,
+  );
+}
+
+export function buildExperientialResolverContext(
+  extractedData: ContextualExampleResolverContext["extractedData"],
+  history: ContextualExampleResolverContext["history"] = [],
+): ContextualExampleResolverContext {
+  const inspirationBaseline =
+    extractedData.inspiration_baseline?.trim() || undefined;
+
+  return {
+    extractedData,
+    inspirationBaseline,
+    history,
+  };
+}
+
+export function getExperientialArchetypeDebugReport(
+  context: ContextualExampleResolverContext,
+): ExperientialArchetypeDebugReport {
+  const inferredText = inferInspirationText(context);
+  if (!inferredText) {
+    return {
+      inferredText: "",
+      winner: "default",
+      maxScore: 0,
+      scores: emptyArchetypeScores(),
+      tiedAtMax: [],
+    };
+  }
+
+  const scores = scoreArchetypeHits(inferredText);
+  const maxScore = Math.max(...Object.values(scores));
+  const winner = resolveHighestScoringArchetype(scores);
+  const tiedAtMax =
+    maxScore > 0
+      ? ARCHETYPE_TIE_BREAK_PRIORITY.filter((archetype) => scores[archetype] === maxScore)
+      : [];
+
+  return {
+    inferredText,
+    winner,
+    maxScore,
+    scores,
+    tiedAtMax,
+  };
+}
+
+/** Tie-break order used when scores are equal — highest complexity first. */
+export const EXPERIENTIAL_ARCHETYPE_TIE_BREAK_ORDER = ARCHETYPE_TIE_BREAK_PRIORITY;
+
 type ExampleMap = Record<ExperientialArchetype, string>;
 
 // ── Section 1 Mapping: User Acquisition (Chat-Facing) ───────────────────────

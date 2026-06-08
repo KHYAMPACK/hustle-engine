@@ -5,12 +5,14 @@ import {
   tryGetCategoryConfig,
 } from "@/lib/ai/gauntlet/category-registry";
 import { getForcedChoiceOptions, resolveContextualExample } from "@/lib/ai/gauntlet/data-point-utils";
+import { mergeExtractedFields } from "@/lib/ai/gauntlet/state-machine";
 import type {
   CategoryTrackConfig,
   ContextualExampleHistoryEntry,
   ContextualExampleResolverContext,
   DataPointDefinition,
   OnboardingSessionState,
+  PassAAnalysis,
   PassBContext,
 } from "@/lib/ai/gauntlet/types";
 import { EXCEPTION_SCRIPTS, TAXONOMY_FORBIDDEN_PHRASES } from "@/lib/ai/gauntlet/types";
@@ -88,21 +90,48 @@ function parseConversationHistory(conversationSummary: string): ContextualExampl
     .filter((entry): entry is ContextualExampleHistoryEntry => entry !== null);
 }
 
+function buildTurnExtractedDataSnapshot(
+  base: OnboardingSessionState["extractedData"],
+  passA: PassAAnalysis,
+  passAActiveDataPointKey?: string,
+): OnboardingSessionState["extractedData"] {
+  const { merged } = mergeExtractedFields(base, passA.extractedFields);
+  const activeValue = passA.activeDataPointValue?.trim();
+
+  if (
+    passAActiveDataPointKey &&
+    activeValue &&
+    (passA.activeDataPointQuality === "specific" ||
+      passA.activeDataPointQuality === "clear")
+  ) {
+    merged[passAActiveDataPointKey] = activeValue;
+  }
+
+  return merged;
+}
+
 function buildContextualExampleResolverContext(
   state: OnboardingSessionState,
   conversationSummary: string,
   userMessage: string,
+  passA: PassAAnalysis,
+  passAActiveDataPointKey?: string,
 ): ContextualExampleResolverContext {
   const history = parseConversationHistory(conversationSummary);
   if (userMessage.trim()) {
     history.push({ role: "user", text: userMessage.trim() });
   }
 
+  const extractedData = buildTurnExtractedDataSnapshot(
+    state.extractedData,
+    passA,
+    passAActiveDataPointKey,
+  );
   const inspirationBaseline =
-    state.extractedData.inspiration_baseline?.trim() || undefined;
+    extractedData.inspiration_baseline?.trim() || undefined;
 
   return {
-    extractedData: state.extractedData,
+    extractedData,
     inspirationBaseline,
     history,
   };
@@ -133,14 +162,21 @@ function buildContextLockDirective(
 - You are STRICTLY FORBIDDEN from using analogies, examples, or metaphors outside the active business track.
 - Active track world: "${categoryConfig?.customerModelLanguage ?? "the venture we are mapping"}"
 - FORBIDDEN cross-domain leakage: no restaurant/dining metaphors; no SaaS billing examples on game tracks; no game mechanics on cloud SaaS tracks; no physical retail unless the track is physical inventory.
-${dynamicNote ? `${dynamicNote}\n` : ""}- Active question contextual anchor (INTERNAL — synthesize in this theme and tone; do NOT quote verbatim unless it flows naturally): """${resolvedExample}"""
-- When providing structural guidance or a helpful hint for the active question, look at that anchor. Use its theme and tone to dynamically synthesize a natural, contextual suggestion that matches the exact engineering world the user is building in.`;
+${dynamicNote ? `${dynamicNote}\n` : ""}- Internal conceptual blueprint (NEVER user-facing copy — do NOT repeat, paraphrase closely, or lift any wording from this block): """${resolvedExample}"""
+
+LINGUISTIC ISOLATION (mandatory — violations fail the turn)
+- Treat the blueprint above as a *conceptual direction only*: domain, engineering theme, and the type of value being chased — NOT a text snippet to copy.
+- When you offer a hint, micro-example, or structural suggestion, you MUST invent a *brand-new, unique application* inside that exact same engineering domain — fresh verbs, fresh tasks, fresh scenarios the user has not already heard from us.
+- STRICTLY FORBIDDEN from the blueprint: reuse of its specific nouns, distinctive phrases, sentence shapes, or exact UI/interaction beats (e.g., if the blueprint mentions ticking an item to feed a resource, you may NOT echo that tick/feed/resource pattern — invent a different mechanic in the same genre).
+- The user must never be able to trace your wording back to the internal blueprint. If your hint sounds like a shortened version of the anchor, rewrite it entirely before responding.`;
 }
 
 function buildPassBPrompt(context: PassBContext): string {
   const {
     state,
     categoryConfig,
+    passA,
+    passAActiveDataPointKey,
     userMessage,
     conversationSummary,
     exceptionScript,
@@ -218,13 +254,19 @@ Output ONLY the assistant message text.`;
 ALIGNMENT MANDATE:
 1. UNIVERSAL COGNITIVE ALIGNMENT: Grade and guide the user based on ultimate business value, bottom-line relief, or core transactional payoff—NOT superficial features or design cosmetics.
 2. PREVENT GOALPOST SHIFTING: Your question must guide the user directly toward this deep value layer right away on Attempt 1. Do not ask shallow logistical questions.
-3. CONTEXT-LOCKED HINTS ONLY: When offering guidance, follow CONTEXT-LOCKED GUIDANCE below — synthesize from the resolved contextual anchor; never import examples from other industries or tracks.`
+3. CONTEXT-LOCKED HINTS ONLY: When offering guidance, follow CONTEXT-LOCKED GUIDANCE below — stay in-track, but invent wholly original wording; never recycle nouns, phrasing, or UI beats from any internal blueprint.`
     : "";
 
   const contextLockDirective = buildContextLockDirective(
     activePoint,
     categoryConfig,
-    buildContextualExampleResolverContext(state, conversationSummary, userMessage),
+    buildContextualExampleResolverContext(
+      state,
+      conversationSummary,
+      userMessage,
+      passA,
+      passAActiveDataPointKey,
+    ),
   );
 
   const loggedIngredientsBlock = buildLoggedIngredientsBlock(
@@ -297,7 +339,7 @@ ${forcedChoiceOptionsBlock}`
             ? "ATTEMPT 1 — PREDICTIVE GENERATION: Follow PREDICTIVE GENERATION MODE below. Output concrete proposals, then close with one high-conviction momentum question—never an open-ended ask."
             : "ATTEMPT 1 — OPEN FIELD: Follow ACTIVE DATA POINT SYNTHESIS below. One question only."
           : escalation === 2
-            ? `ATTEMPT 2 — GUARDRAILS: Do NOT accept fluff. Structure: [Objective critique in this track's language] + [Why vague answers burn their time/cash] + [One tighter question with a micro-example synthesized from the contextual anchor]. Focus: ${activePoint?.guardrailFocus ?? ""}. Target intent: ${activePoint?.targetIntent ?? "unknown"}. Never quote the reference baseline. Never use cross-domain analogies.`
+            ? `ATTEMPT 2 — GUARDRAILS: Do NOT accept fluff. Structure: [Objective critique in this track's language] + [Why vague answers burn their time/cash] + [One tighter question with a micro-example that is a freshly invented scenario in the same engineering domain — zero reuse of internal blueprint nouns, phrasing, or UI interactions]. Focus: ${activePoint?.guardrailFocus ?? ""}. Target intent: ${activePoint?.targetIntent ?? "unknown"}. Never quote the reference baseline or contextual blueprint. Never use cross-domain analogies.`
             : `ATTEMPT 3 — FORCED CHOICE: Do NOT ask an open question. Present the two options already locked in the UI (${state.forcedChoices?.a} vs ${state.forcedChoices?.b}) in natural language and tell them to pick one to continue.`;
 
   const triageWelcomeBlock = triageJustCompleted
@@ -305,7 +347,7 @@ ${forcedChoiceOptionsBlock}`
 - The pitch was just classified internally. NEVER reveal category codes, numbers, pillars, or database keys.
 - Mirror the assignment using this natural framing only: "${categoryConfig?.customerModelLanguage ?? "This venture"}"
 - Do NOT use filler validations ("Great idea!", "Awesome!").
-- Transition directly into the first foundation question by synthesizing from target intent — never quote the reference baseline verbatim.`
+- Transition directly into the first foundation question by synthesizing from target intent — never quote the reference baseline or contextual blueprint; invent fresh in-domain wording.`
     : "";
 
   return `You are the Hustle Engine venture strategist — Pass B persona layer.
@@ -316,6 +358,7 @@ PERSONA (strict)
 - Taxonomy blindness: NEVER reveal stages, categories, data points, triage, routing, schemas, pillars, or attempt numbers.
 - Use "we" and "let's" during pushback — sit beside the user, not above them.
 - Zero jargon. All hints and examples must stay inside the active track's engineering world — see CONTEXT-LOCKED GUIDANCE below.
+- INTERNAL BLUEPRINT ISOLATION: Any internal reference baseline or contextual blueprint is inspiration-only. Never quote it, paraphrase it closely, or lift its nouns/UI beats into user-facing text — always synthesize a new scenario in the same domain with different verbs and mechanics.
 - Single-threaded: ONE primary question or ONE forced-choice instruction per reply. Never double-prompt.
 - MOMENTUM CLOSING: When presenting AI-generated proposals, end with one sharp, high-conviction question that drives the next move forward. Ban passive confirm/adjust phrasing (e.g., never ask to "lock this in", "save this", or "adjust it").
 - STRUCTURAL LAYOUT (strict):
