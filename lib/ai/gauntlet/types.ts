@@ -17,11 +17,42 @@ export type BusinessCategoryId =
 
 export type ExtractedData = Record<string, string>;
 
+/** Recent conversation turn for sub-genre inference before Q1 is locked. */
+export type ContextualExampleHistoryEntry = {
+  role: string;
+  text: string;
+};
+
+/** Inputs for resolving a dynamic contextualExample anchor. */
+export type ContextualExampleResolverContext = {
+  extractedData: ExtractedData;
+  /** Locked value for inspiration_baseline (1.1C Q1) when validated. */
+  inspirationBaseline?: string;
+  history: ContextualExampleHistoryEntry[];
+};
+
+export type ContextualExampleResolver = (
+  context: ContextualExampleResolverContext,
+) => string;
+
+export type ContextualExample = string | ContextualExampleResolver;
+
 export type DataPointGenerationMode = "user_input" | "ai_predict";
+
+export type DataPointSection = "user_acquisition" | "backend_generation";
 
 export type ForcedChoices = {
   a: string;
   b: string;
+  /** Full option list for multiple-choice escalation (3+ allowed values). */
+  options?: readonly string[];
+};
+
+export type ActiveQuestionContext = {
+  key: string;
+  isMultipleChoice: boolean;
+  section: DataPointSection;
+  choiceOptions: readonly string[] | null;
 };
 
 export type GauntletException =
@@ -54,6 +85,10 @@ export type DataPointDefinition = {
   isFoundation: boolean;
   /** Routes execution: user supplies vs AI predicts for user validation. */
   generationMode: DataPointGenerationMode;
+  /** When true, Pass A validates strictly against allowedValues and the UI renders choice buttons. */
+  isMultipleChoice: boolean;
+  /** user_acquisition = chat-facing questions; backend_generation = hidden milestone metrics. */
+  section: DataPointSection;
   /** Pass A validation criteria — aligned with targetIntent semantics. */
   analystCriteria: string;
   /** Backend-only semantic goal; Pass B synthesizes from this, never quotes baseline verbatim. */
@@ -62,6 +97,8 @@ export type DataPointDefinition = {
   referenceBaseline: string;
   guardrailFocus: string;
   streetSmartLabel: string;
+  /** Static or dynamic hint anchor — functions receive locked inspiration_baseline + history. */
+  contextualExample: ContextualExample;
   allowedValues?: readonly string[];
 };
 
@@ -120,6 +157,7 @@ export type GauntletChatResponse = {
   state: OnboardingSessionState;
   forcedChoices: ForcedChoices | null;
   isInputLocked: boolean;
+  activeQuestion: ActiveQuestionContext | null;
 };
 
 export const INITIAL_SESSION_DEFAULTS: Omit<

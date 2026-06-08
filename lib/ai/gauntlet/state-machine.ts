@@ -35,6 +35,14 @@ function resolveForcedChoices(
   incoming: ForcedChoices | null | undefined,
   fallback: ForcedChoices = DEFAULT_ESCALATION_FORCED_CHOICES,
 ): ForcedChoices {
+  if (incoming?.options?.length) {
+    return {
+      a: incoming.a.trim(),
+      b: incoming.b.trim(),
+      options: incoming.options,
+    };
+  }
+
   if (incoming?.a?.trim() && incoming?.b?.trim()) {
     return { a: incoming.a.trim(), b: incoming.b.trim() };
   }
@@ -110,7 +118,8 @@ export function syncActiveDataPointPredictionFlag(
 
   return {
     ...state,
-    isCurrentFieldPredicted: activePoint.generationMode === "ai_predict",
+    isCurrentFieldPredicted:
+      activePoint.generationMode === "ai_predict" && !activePoint.isMultipleChoice,
   };
 }
 

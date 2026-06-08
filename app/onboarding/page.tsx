@@ -4,8 +4,14 @@ import { blueprintToMetrics } from "@/lib/blueprint-schema";
 import type { VentureBlueprint } from "@/lib/blueprint-schema";
 import { LeanLedger } from "@/app/onboarding/LeanLedger";
 import { getMessageText } from "@/lib/chat-utils";
+import { GauntletDebugPanel } from "@/app/onboarding/GauntletDebugPanel";
 import { postGauntletChat } from "@/lib/ai/gauntlet/client";
-import type { ForcedChoices } from "@/lib/ai/gauntlet/types";
+import { getForcedChoiceOptions } from "@/lib/ai/gauntlet/data-point-utils";
+import type {
+  ActiveQuestionContext,
+  ForcedChoices,
+  OnboardingSessionState,
+} from "@/lib/ai/gauntlet/types";
 import {
   extractFinalizeBlueprintFromMessages,
   messageHasFinalizeBlueprintTool,
@@ -621,10 +627,17 @@ function OnboardingPageInner() {
   const [persistError, setPersistError] = useState<string | null>(null);
   const [messages, setMessages] = useState<UIMessage[]>([INITIAL_UI_MESSAGE]);
   const [forcedChoices, setForcedChoices] = useState<ForcedChoices | null>(null);
+  const [activeQuestion, setActiveQuestion] = useState<ActiveQuestionContext | null>(
+    null,
+  );
   const [isInputLocked, setIsInputLocked] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [openingLoaded, setOpeningLoaded] = useState(false);
+  const [sessionState, setSessionState] = useState<OnboardingSessionState | null>(
+    null,
+  );
+  const [showGauntletDebug, setShowGauntletDebug] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const blueprintPersistedRef = useRef(false);
 
@@ -644,6 +657,9 @@ function OnboardingPageInner() {
     setMessages([INITIAL_UI_MESSAGE]);
     setOpeningLoaded(false);
     setForcedChoices(null);
+    setActiveQuestion(null);
+    setSessionState(null);
+    setShowGauntletDebug(true);
     setIsInputLocked(false);
     setInput("");
     setChatError(null);
@@ -779,7 +795,9 @@ function OnboardingPageInner() {
       }
 
       setForcedChoices(payload.forcedChoices);
+      setActiveQuestion(payload.activeQuestion);
       setIsInputLocked(payload.isInputLocked);
+      setSessionState(payload.state);
     } catch (requestError) {
       setChatError(
         requestError instanceof Error
@@ -908,6 +926,14 @@ function OnboardingPageInner() {
   }, [startFresh, authChecked, userId]);
 
   const isLoading = isChatLoading;
+  const isMultipleChoiceTurn =
+    Boolean(activeQuestion?.isMultipleChoice && activeQuestion.choiceOptions?.length) &&
+    !isInputLocked;
+  const choiceButtonOptions = isInputLocked
+    ? getForcedChoiceOptions(forcedChoices)
+    : (activeQuestion?.choiceOptions ?? []);
+  const showChoiceButtons = choiceButtonOptions.length > 0;
+  const hideTextInput = isMultipleChoiceTurn;
   const chatLocked =
     showMatrix || projectIsActive || isHydrating || isInputLocked;
 
@@ -940,6 +966,21 @@ function OnboardingPageInner() {
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
     setInput("");
+    void sendGauntletMessage({ nextMessages });
+  }
+
+  function handleChoiceOption(label: string) {
+    if (isLoading || !label.trim()) {
+      return;
+    }
+
+    const userMessage: UIMessage = {
+      id: `user-choice-${Date.now()}`,
+      role: "user",
+      parts: [{ type: "text", text: label }],
+    };
+    const nextMessages = [...messages, userMessage];
+    setMessages(nextMessages);
     void sendGauntletMessage({ nextMessages });
   }
 
@@ -1013,18 +1054,30 @@ function OnboardingPageInner() {
 
   return (
     <main className="flex flex-1 flex-col items-center px-4 py-8 sm:py-12">
-      <div className="flex h-[min(720px,calc(100dvh-4rem))] w-full max-w-2xl flex-col overflow-hidden rounded-sm border border-border">
+      <div className="flex w-full max-w-5xl items-start gap-4">
+      <div className="flex h-[min(720px,calc(100dvh-4rem))] min-w-0 flex-1 max-w-2xl flex-col overflow-hidden rounded-sm border border-border">
         <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5">
           <p className="text-xs font-medium tracking-[0.25em] text-muted uppercase">
             Venture Scoping
           </p>
-          <button
-            type="button"
-            onClick={() => void handleExitConversation()}
-            className="text-xs font-medium text-muted transition-colors hover:text-foreground"
-          >
-            Exit
-          </button>
+          <div className="flex items-center gap-3">
+            {!showGauntletDebug && (
+              <button
+                type="button"
+                onClick={() => setShowGauntletDebug(true)}
+                className="text-[10px] font-medium tracking-wide text-amber-600/80 uppercase transition-colors hover:text-amber-600 dark:text-amber-400/80 dark:hover:text-amber-400"
+              >
+                Debug
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleExitConversation()}
+              className="text-xs font-medium text-muted transition-colors hover:text-foreground"
+            >
+              Exit
+            </button>
+          </div>
         </div>
 
         <div
@@ -1086,31 +1139,40 @@ function OnboardingPageInner() {
             </p>
           )}
 
-          {isInputLocked && forcedChoices && (
+          {showChoiceButtons && (
             <div className="flex flex-col gap-3 border-t border-border pt-4">
               <p className="text-xs font-medium tracking-[0.2em] text-muted uppercase">
-                Pick one to continue
+                {isInputLocked ? "Pick one to continue" : "Choose one"}
               </p>
-              <button
-                type="button"
-                onClick={() => handleForcedChoice("a")}
-                disabled={isLoading}
-                className="rounded-sm border border-border px-4 py-3 text-left text-sm text-foreground transition-colors hover:border-foreground/40 hover:bg-foreground/[0.04] disabled:opacity-50"
-              >
-                {forcedChoices.a}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleForcedChoice("b")}
-                disabled={isLoading}
-                className="rounded-sm border border-border px-4 py-3 text-left text-sm text-foreground transition-colors hover:border-foreground/40 hover:bg-foreground/[0.04] disabled:opacity-50"
-              >
-                {forcedChoices.b}
-              </button>
+              {choiceButtonOptions.map((option) => {
+                const useForcedChoiceShortcut =
+                  isInputLocked &&
+                  forcedChoices &&
+                  (!forcedChoices.options || forcedChoices.options.length <= 2);
+
+                return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() =>
+                    useForcedChoiceShortcut
+                      ? handleForcedChoice(
+                          option === forcedChoices?.a ? "a" : "b",
+                        )
+                      : handleChoiceOption(option)
+                  }
+                  disabled={isLoading}
+                  className="rounded-sm border border-border px-4 py-3 text-left text-sm text-foreground transition-colors hover:border-foreground/40 hover:bg-foreground/[0.04] disabled:opacity-50"
+                >
+                  {option}
+                </button>
+                );
+              })}
             </div>
           )}
         </div>
 
+        {!hideTextInput && (
         <form
           onSubmit={handleSubmit}
           className="flex shrink-0 items-end gap-3 border-t border-border bg-background px-4 py-4 sm:px-5"
@@ -1142,6 +1204,15 @@ function OnboardingPageInner() {
             Send
           </button>
         </form>
+        )}
+      </div>
+
+      {showGauntletDebug && (
+        <GauntletDebugPanel
+          state={sessionState}
+          onDismiss={() => setShowGauntletDebug(false)}
+        />
+      )}
       </div>
     </main>
   );

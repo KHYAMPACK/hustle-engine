@@ -1,5 +1,9 @@
 import { formatUnknownError } from "@/lib/format-error";
-import type { ForcedChoices, OnboardingSessionState } from "@/lib/ai/gauntlet/types";
+import type {
+  ActiveQuestionContext,
+  ForcedChoices,
+  OnboardingSessionState,
+} from "@/lib/ai/gauntlet/types";
 import type { UIMessage } from "ai";
 
 export type GauntletChatPayload = {
@@ -7,6 +11,7 @@ export type GauntletChatPayload = {
   state: OnboardingSessionState;
   forcedChoices: ForcedChoices | null;
   isInputLocked: boolean;
+  activeQuestion: ActiveQuestionContext | null;
 };
 
 export type GauntletChatRequest = {

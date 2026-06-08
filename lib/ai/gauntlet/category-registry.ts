@@ -2,7 +2,15 @@ import {
   DIGITAL_SOFTWARE_EVALUATION_KEYS,
   digitalSoftwareCategoryConfig,
 } from "@/lib/ai/gauntlet/categories/1-1-digital-software";
+import {
+  EXPERIENTIAL_SOFTWARE_EVALUATION_KEYS,
+  experientialSoftwareCategoryConfig,
+} from "@/lib/ai/gauntlet/categories/1-3-experiential-software";
 import { stubCategoryConfigs } from "@/lib/ai/gauntlet/categories/stubs";
+import {
+  formatContextualExampleForSchema,
+  isUserAcquisitionDataPoint,
+} from "@/lib/ai/gauntlet/data-point-utils";
 import type {
   CategoryTrackConfig,
   DataPointDefinition,
@@ -18,13 +26,14 @@ import {
 
 const CATEGORY_REGISTRY: Record<string, CategoryTrackConfig> = {
   [digitalSoftwareCategoryConfig.id]: digitalSoftwareCategoryConfig,
+  [experientialSoftwareCategoryConfig.id]: experientialSoftwareCategoryConfig,
 };
 
 for (const config of stubCategoryConfigs) {
   CATEGORY_REGISTRY[config.id] = config;
 }
 
-export { DIGITAL_SOFTWARE_EVALUATION_KEYS };
+export { DIGITAL_SOFTWARE_EVALUATION_KEYS, EXPERIENTIAL_SOFTWARE_EVALUATION_KEYS };
 
 export function listRegisteredCategories(): string[] {
   return Object.keys(CATEGORY_REGISTRY);
@@ -114,6 +123,10 @@ export function getNextUnpopulatedDataPoint(
       continue;
     }
 
+    if (!isUserAcquisitionDataPoint(point)) {
+      continue;
+    }
+
     if (!isFoundationComplete(config, extractedData) && !point.isFoundation) {
       continue;
     }
@@ -143,8 +156,12 @@ export function buildQuestionnaireSchemaForCategory(
   return config.dataPoints
     .map(
       (point) =>
-        `- ${point.key} (intent: ${point.targetIntent}; validation: ${point.analystCriteria}; label: ${point.streetSmartLabel}${
-          point.allowedValues ? `; allowed: ${point.allowedValues.join(" | ")}` : ""
+        `- ${point.key} (section: ${point.section}; intent: ${point.targetIntent}; validation: ${point.analystCriteria}; label: ${point.streetSmartLabel}; contextual example: ${formatContextualExampleForSchema(point)}${
+          point.isMultipleChoice && point.allowedValues
+            ? `; multiple-choice: ${point.allowedValues.join(" | ")}`
+            : point.allowedValues
+              ? `; allowed: ${point.allowedValues.join(" | ")}`
+              : ""
         })`,
     )
     .join("\n");

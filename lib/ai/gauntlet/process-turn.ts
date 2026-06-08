@@ -3,9 +3,12 @@ import {
   getCategoryConfig,
   getDataPointByKey,
   getNextUnpopulatedDataPoint,
+  tryGetCategoryConfig,
 } from "@/lib/ai/gauntlet/category-registry";
+import { buildActiveQuestionContext } from "@/lib/ai/gauntlet/data-point-utils";
 import {
   emptyPassAAnalysis,
+  runBackendDerivationPassA,
   runPassAAnalyst,
   runTriagePassA,
 } from "@/lib/ai/gauntlet/pass-a-analyst";
@@ -19,6 +22,7 @@ import {
   PENDING_ACTIVE_DATA_POINT,
 } from "@/lib/ai/gauntlet/triage";
 import type {
+  CategoryTrackConfig,
   GauntletChatResponse,
   GauntletException,
   OnboardingSessionState,
@@ -52,11 +56,50 @@ function getLastUserMessage(messages: UIMessage[]): string {
   return "";
 }
 
+function buildGauntletResponse(
+  message: string,
+  state: OnboardingSessionState,
+): GauntletChatResponse {
+  const categoryConfig = tryGetCategoryConfig(state.category);
+  const activeQuestion = categoryConfig
+    ? buildActiveQuestionContext(categoryConfig, state.activeDataPoint)
+    : null;
+
+  return {
+    message,
+    state,
+    forcedChoices: state.forcedChoices,
+    isInputLocked: state.isInputLocked,
+    activeQuestion,
+  };
+}
+
 export type ProcessGauntletTurnInput = {
   messages: UIMessage[];
   session: OnboardingSessionState;
   forcedChoice?: "a" | "b";
 };
+
+async function applyBackendDerivationIfReady(
+  state: OnboardingSessionState,
+  config: CategoryTrackConfig,
+  conversationSummary: string,
+): Promise<OnboardingSessionState> {
+  const derived = await runBackendDerivationPassA(
+    config,
+    state.extractedData,
+    conversationSummary,
+  );
+
+  if (Object.keys(derived).length === 0) {
+    return state;
+  }
+
+  return {
+    ...state,
+    extractedData: { ...state.extractedData, ...derived },
+  };
+}
 
 export async function processGauntletTurn(
   input: ProcessGauntletTurnInput,
@@ -71,12 +114,7 @@ export async function processGauntletTurn(
     const message = await runPassBPersona(openingContext);
 
     return {
-      response: {
-        message,
-        state,
-        forcedChoices: null,
-        isInputLocked: false,
-      },
+      response: buildGauntletResponse(message, state),
       session: state,
     };
   }
@@ -88,12 +126,7 @@ export async function processGauntletTurn(
 
     if (triage.isSplitParadoxDetected) {
       return {
-        response: {
-          message: EXCEPTION_SCRIPTS.two_ideas,
-          state,
-          forcedChoices: null,
-          isInputLocked: false,
-        },
+        response: buildGauntletResponse(EXCEPTION_SCRIPTS.two_ideas, state),
         session: state,
       };
     }
@@ -113,12 +146,7 @@ export async function processGauntletTurn(
       });
 
       return {
-        response: {
-          message,
-          state,
-          forcedChoices: null,
-          isInputLocked: false,
-        },
+        response: buildGauntletResponse(message, state),
         session: state,
       };
     }
@@ -132,6 +160,11 @@ export async function processGauntletTurn(
     );
     const transition = applyPassAToState(state, passA, categoryConfig);
     state = transition.state;
+    state = await applyBackendDerivationIfReady(
+      state,
+      categoryConfig,
+      conversationSummary,
+    );
 
     const message = await runPassBPersona({
       state,
@@ -150,12 +183,7 @@ export async function processGauntletTurn(
     });
 
     return {
-      response: {
-        message,
-        state,
-        forcedChoices: state.forcedChoices,
-        isInputLocked: state.isInputLocked,
-      },
+      response: buildGauntletResponse(message, state),
       session: state,
     };
   }
@@ -202,6 +230,11 @@ export async function processGauntletTurn(
     forcedChoice,
   );
   state = transition.state;
+  state = await applyBackendDerivationIfReady(
+    state,
+    categoryConfig,
+    conversationSummary,
+  );
 
   const activeConfig = getCategoryConfig(state.category);
   const nextDataPoint =
@@ -225,12 +258,7 @@ export async function processGauntletTurn(
   });
 
   return {
-    response: {
-      message,
-      state,
-      forcedChoices: state.forcedChoices,
-      isInputLocked: state.isInputLocked,
-    },
+    response: buildGauntletResponse(message, state),
     session: state,
   };
 }

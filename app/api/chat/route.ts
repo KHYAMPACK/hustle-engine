@@ -69,6 +69,7 @@ export async function POST(req: Request) {
       state: savedSession,
       forcedChoices: savedSession.forcedChoices,
       isInputLocked: savedSession.isInputLocked,
+      activeQuestion: response.activeQuestion,
     });
   } catch (error) {
     console.error("Gauntlet chat pipeline error:", error);

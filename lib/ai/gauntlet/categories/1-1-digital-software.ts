@@ -1,4 +1,6 @@
-import type { CategoryTrackConfig, DataPointDefinition } from "@/lib/ai/gauntlet/types";
+import { normalizeCategoryConfig } from "@/lib/ai/gauntlet/data-point-utils";
+import type { DataPointDefinitionInput } from "@/lib/ai/gauntlet/data-point-utils";
+import type { CategoryTrackConfig } from "@/lib/ai/gauntlet/types";
 import { getCustomerModelLanguage } from "@/lib/ai/gauntlet/taxonomy";
 
 const DIGITAL_SOFTWARE_STAGE_MASKS = [
@@ -9,7 +11,7 @@ const DIGITAL_SOFTWARE_STAGE_MASKS = [
   { stage: 5 as const, customerLanguage: "The math behind making a profit" },
 ] as const;
 
-const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
+const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
   {
     key: "target_human",
     stage: 1,
@@ -19,11 +21,12 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     targetIntent:
       "Extract the razor-sharp target user archetype or niche audience profile to prevent a generalized 'for everyone' failure.",
     referenceBaseline:
-      "Who is the specific person or business that will use or play this? Try to pinpoint exactly who they are.",
+      "Who is the specific person or business that will use this web app? Pinpoint exactly who they are.",
     analystCriteria:
       "A specific human, job title, or niche audience — not 'everyone', 'small businesses', or vague groups.",
     guardrailFocus:
-      "Force one narrow starting customer. Use a restaurant analogy: one menu, one crowd, one location.",
+      "Force one narrow ICP — one job title or workflow owner, not a broad market.",
+    contextualExample: "Solo bookkeepers managing 5–15 small-business clients",
   },
   {
     key: "core_friction",
@@ -34,11 +37,12 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     targetIntent:
       "Isolate the single deepest emotional or financial pain point, daily annoyance, or acute problem forcing them to look for a software solution.",
     referenceBaseline:
-      "What is the single biggest annoyance, problem, or boredom itch they have that makes them look for a tool or game?",
+      "What is the single biggest annoyance or workflow break that makes them hunt for a SaaS tool?",
     analystCriteria:
       "One specific recurring pain tied to the target user — emotional, financial, or daily annoyance — not a generic wish.",
     guardrailFocus:
-      "Strip fluff. Name one operational leak that costs them time or money every week.",
+      "Name one recurring task that breaks their weekly workflow — not a vague ' inefficiency'.",
+    contextualExample: "Reconciling Stripe payouts against QuickBooks by hand every Monday",
   },
   {
     key: "core_utility",
@@ -47,13 +51,14 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     generationMode: "ai_predict",
     streetSmartLabel: "The immediate payoff",
     targetIntent:
-      "Identify the absolute core outcome, core loop value, or immediate value realization hook they experience within the first 5 seconds.",
+      "Identify the absolute core outcome or immediate value realization hook they experience within the first session.",
     referenceBaseline:
-      "What is the absolute core outcome or addictive 5-second gameplay hook they get instantly from your product?",
+      "What is the core outcome they get on first login — the instant win from your web app?",
     analystCriteria:
-      "A concrete instant outcome or hook within the first interaction — not a feature list or long-term vision.",
+      "A concrete instant outcome within the first session — not a feature list or long-term vision.",
     guardrailFocus:
-      "Translate features into one plain outcome the customer can picture in five seconds.",
+      "One first-session win they can describe in a single sentence.",
+    contextualExample: "See every unpaid invoice and its age in one dashboard view",
   },
   {
     key: "waitlist_slogan",
@@ -68,7 +73,8 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     analystCriteria:
       "A punchy, specific headline a real person would repeat — not generic marketing fluff or corporate jargon.",
     guardrailFocus:
-      "Cut ad-speak. One sentence a tired founder would actually say out loud.",
+      "One sentence a tired operator would actually say — not ad-speak.",
+    contextualExample: "Stop chasing invoice payments — get paid the day the job is done",
   },
   {
     key: "verification_ask",
@@ -83,7 +89,8 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     analystCriteria:
       "A concrete validation metric or action with a number or clear threshold — email count, calls, pre-orders, etc.",
     guardrailFocus:
-      "Name one low-friction action with a measurable hurdle that costs them something — time, email, or money.",
+      "One measurable hurdle with a number — not 'see if people are interested'.",
+    contextualExample: "50 waitlist signups before wiring the Stripe integration",
   },
   {
     key: "fishing_hole",
@@ -98,23 +105,26 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     analystCriteria:
       "Named specific community — subreddit, Facebook group, forum, Discord — not 'social media' or 'the internet'.",
     guardrailFocus:
-      "Pick one pond — a named subreddit, group, or forum — not every platform at once.",
+      "One named community — not a platform category like 'LinkedIn'.",
+    contextualExample: "r/freelance on Reddit",
   },
   {
     key: "builder_lane",
     stage: 3,
     isFoundation: false,
     generationMode: "ai_predict",
+    isMultipleChoice: true,
     streetSmartLabel: "How we assemble the first version",
     allowedValues: ["Lego", "AI", "Custom"],
     targetIntent:
       "Map out their direct technical implementation capacity ceiling.",
     referenceBaseline:
-      "Think of building your site like a house. Do you want to build with Lego Blocks (No-Code), AI Dictation, or Brick-by-Brick Custom Code?",
+      "How do you want to assemble v1 — no-code stack, AI-assisted build, or hand-coded from scratch?",
     analystCriteria:
       "Must resolve to exactly one of: Lego (no-code), AI (AI-assisted build), or Custom (hand-coded from scratch).",
     guardrailFocus:
-      "Match the build style to their budget and hours — heavy custom on zero budget is a trap.",
+      "Match build weight to budget and hours — custom code on zero runway is a trap.",
+    contextualExample: "Lego — Bubble app with Stripe plug-in and Supabase auth",
   },
   {
     key: "core_scissors",
@@ -129,7 +139,8 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     analystCriteria:
       "Explicit named features or ambitions deferred from MVP — not vague 'keep it simple'.",
     guardrailFocus:
-      "Name one tempting feature that would burn weeks for zero early revenue.",
+      "Name one feature temptation that would burn weeks with zero early revenue.",
+    contextualExample: "Multi-currency billing — defer until first 10 paying customers",
   },
   {
     key: "resource_urgency",
@@ -144,7 +155,8 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     analystCriteria:
       "Specific weekly hours AND a monthly cash budget for tools — both numbers or ranges required.",
     guardrailFocus:
-      "Force honest numbers — vague 'a few hours' and 'as cheap as possible' burn runway.",
+      "Both numbers required — vague 'a few hours' and 'as cheap as possible' burn runway.",
+    contextualExample: "8 hours/week, $40/month on hosting and SaaS tools",
   },
   {
     key: "database_brain",
@@ -155,11 +167,12 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     targetIntent:
       "Define the core information structures that the application's database engine must remember forever (e.g., user profiles, custom inputs, task logs).",
     referenceBaseline:
-      "To build the database 'brain' of your app, what specific information does it need to remember forever (like user emails or scores)?",
+      "To build the database 'brain' of your app, what specific information does it need to remember forever?",
     analystCriteria:
       "Named data entities or fields the system must persist — user emails, scores, logs, profiles, etc.",
     guardrailFocus:
-      "List concrete data types — not 'everything' or 'user data' without specifics.",
+      "List concrete tables or fields — not 'user data' without specifics.",
+    contextualExample: "User email, invoice line items, payment status, client name",
   },
   {
     key: "interface_face",
@@ -170,11 +183,12 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     targetIntent:
       "Extract the fundamental, minimal layout wireframe components (the literal buttons, data boxes, and inputs) displayed on their screen.",
     referenceBaseline:
-      "When a user opens this specific feature on their screen, what do they physically see? Just list the visual buttons and boxes.",
+      "When a user opens this feature on their screen, what do they physically see? Just list the visual buttons and boxes.",
     analystCriteria:
       "Specific UI elements — buttons, inputs, boxes, screens — not abstract 'dashboard' without components.",
     guardrailFocus:
-      "One primary screen with named elements — not a full product tour.",
+      "One primary screen with named UI elements — not a full product tour.",
+    contextualExample: "Invoice list table, New Invoice button, status badge per row",
   },
   {
     key: "price_tag",
@@ -189,7 +203,8 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     analystCriteria:
       "Price amount or range PLUS mechanism — one-time, subscription, or usage — with concrete numbers.",
     guardrailFocus:
-      "Attach a real dollar amount or range and why they'd happily pay it.",
+      "A dollar amount plus billing mechanism — not 'affordable' without numbers.",
+    contextualExample: "$12/month per seat, recurring Stripe subscription",
   },
   {
     key: "home_base",
@@ -204,11 +219,12 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinition[] = [
     analystCriteria:
       "A specific country of residence — not multiple regions or 'global'.",
     guardrailFocus:
-      "One country where they physically operate — needed for payments and tax routing.",
+      "One country of operation — needed for Stripe, tax, and entity routing.",
+    contextualExample: "United States — Stripe + standard US sales tax rules",
   },
 ];
 
-export const digitalSoftwareCategoryConfig: CategoryTrackConfig = {
+export const digitalSoftwareCategoryConfig: CategoryTrackConfig = normalizeCategoryConfig({
   id: "1.1D_cloud_utility_saas",
   customerModelLanguage: getCustomerModelLanguage("1.1D_cloud_utility_saas"),
   triageAliases: [
@@ -221,7 +237,7 @@ export const digitalSoftwareCategoryConfig: CategoryTrackConfig = {
   ],
   stages: DIGITAL_SOFTWARE_STAGE_MASKS,
   dataPoints: DIGITAL_SOFTWARE_DATA_POINTS,
-};
+});
 
 /** All evaluation keys for Category 1.1D — used when initializing extractedData JSONB. */
 export const DIGITAL_SOFTWARE_EVALUATION_KEYS = DIGITAL_SOFTWARE_DATA_POINTS.map(

@@ -4,8 +4,11 @@ import {
   getStageMaskLanguage,
   tryGetCategoryConfig,
 } from "@/lib/ai/gauntlet/category-registry";
+import { getForcedChoiceOptions, resolveContextualExample } from "@/lib/ai/gauntlet/data-point-utils";
 import type {
   CategoryTrackConfig,
+  ContextualExampleHistoryEntry,
+  ContextualExampleResolverContext,
   DataPointDefinition,
   OnboardingSessionState,
   PassBContext,
@@ -63,6 +66,75 @@ function getSecuredMilestonePoint(
   );
 
   return matchingPoint ?? null;
+}
+
+function parseConversationHistory(conversationSummary: string): ContextualExampleHistoryEntry[] {
+  if (!conversationSummary.trim()) {
+    return [];
+  }
+
+  return conversationSummary
+    .split("\n")
+    .map((line) => {
+      const match = line.match(/^(user|assistant):\s*(.+)$/i);
+      if (!match) {
+        return null;
+      }
+      return {
+        role: match[1].toLowerCase(),
+        text: match[2].trim(),
+      };
+    })
+    .filter((entry): entry is ContextualExampleHistoryEntry => entry !== null);
+}
+
+function buildContextualExampleResolverContext(
+  state: OnboardingSessionState,
+  conversationSummary: string,
+  userMessage: string,
+): ContextualExampleResolverContext {
+  const history = parseConversationHistory(conversationSummary);
+  if (userMessage.trim()) {
+    history.push({ role: "user", text: userMessage.trim() });
+  }
+
+  const inspirationBaseline =
+    state.extractedData.inspiration_baseline?.trim() || undefined;
+
+  return {
+    extractedData: state.extractedData,
+    inspirationBaseline,
+    history,
+  };
+}
+
+function buildContextLockDirective(
+  activePoint: DataPointDefinition | null,
+  categoryConfig: CategoryTrackConfig | null,
+  resolverContext: ContextualExampleResolverContext,
+): string {
+  if (!activePoint) {
+    return "";
+  }
+
+  const resolvedExample = resolveContextualExample(activePoint, resolverContext);
+  if (!resolvedExample) {
+    return "";
+  }
+
+  const dynamicNote =
+    typeof activePoint.contextualExample === "function" && resolverContext.inspirationBaseline
+      ? `- Dynamic anchor source: inspiration_baseline = "${resolverContext.inspirationBaseline}"`
+      : typeof activePoint.contextualExample === "function"
+        ? "- Dynamic anchor: no inspiration_baseline locked yet — use broad track-safe baseline"
+        : "";
+
+  return `CONTEXT-LOCKED GUIDANCE (mandatory when giving hints, micro-examples, or structural suggestions)
+- You are STRICTLY FORBIDDEN from using analogies, examples, or metaphors outside the active business track.
+- Active track world: "${categoryConfig?.customerModelLanguage ?? "the venture we are mapping"}"
+- FORBIDDEN cross-domain leakage: no restaurant/dining metaphors; no SaaS billing examples on game tracks; no game mechanics on cloud SaaS tracks; no physical retail unless the track is physical inventory.
+${dynamicNote ? `${dynamicNote}\n` : ""}- Active question contextual anchor (INTERNAL — synthesize in this theme and tone; do NOT quote verbatim unless it flows naturally): """${resolvedExample}"""
+- When providing structural guidance or a helpful hint for the active question, look at that anchor. Use its theme and tone to dynamically synthesize a natural, contextual suggestion that matches the exact engineering world the user is building in.`;
 }
 
 function buildPassBPrompt(context: PassBContext): string {
@@ -146,8 +218,14 @@ Output ONLY the assistant message text.`;
 ALIGNMENT MANDATE:
 1. UNIVERSAL COGNITIVE ALIGNMENT: Grade and guide the user based on ultimate business value, bottom-line relief, or core transactional payoff—NOT superficial features or design cosmetics.
 2. PREVENT GOALPOST SHIFTING: Your question must guide the user directly toward this deep value layer right away on Attempt 1. Do not ask shallow logistical questions.
-3. DYNAMIC RELEVANT ANALOGY: Drop a tailored, domain-specific analogy upfront to contrast a surface feature with core utility so the user responds correctly on their first try.`
+3. CONTEXT-LOCKED HINTS ONLY: When offering guidance, follow CONTEXT-LOCKED GUIDANCE below — synthesize from the resolved contextual anchor; never import examples from other industries or tracks.`
     : "";
+
+  const contextLockDirective = buildContextLockDirective(
+    activePoint,
+    categoryConfig,
+    buildContextualExampleResolverContext(state, conversationSummary, userMessage),
+  );
 
   const loggedIngredientsBlock = buildLoggedIngredientsBlock(
     categoryConfig,
@@ -192,19 +270,34 @@ ${loggedIngredientsBlock}
   const isForcedChoiceUiActive =
     state.isInputLocked || Boolean(state.forcedChoices);
 
+  const forcedChoiceOptions = getForcedChoiceOptions(state.forcedChoices);
+  const forcedChoiceOptionsBlock =
+    forcedChoiceOptions.length > 0
+      ? forcedChoiceOptions.map((option, index) => `- Option ${index + 1}: ${option}`).join("\n")
+      : "";
+
+  const isMultipleChoiceTurnOne =
+    Boolean(activePoint?.isMultipleChoice && activePoint.allowedValues) &&
+    !isForcedChoiceUiActive;
+
   const attemptInstructions =
     isForcedChoiceUiActive && state.forcedChoices
-      ? `FORCED CHOICE (UI LOCKED — ignore escalation tier ${escalation}): Do NOT ask an open question. The text input is disabled and two option buttons are visible in the UI. Frame the entire response around choosing between Option A and Option B. Tell them to tap the button that matches their call.
+      ? forcedChoiceOptions.length > 2
+        ? `FORCED CHOICE (UI LOCKED — ignore escalation tier ${escalation}): Do NOT ask an open question. The text input is disabled and choice buttons are visible in the UI. Frame the entire response around picking one of the listed options. Tell them to tap the button that matches their call.
+${forcedChoiceOptionsBlock}`
+        : `FORCED CHOICE (UI LOCKED — ignore escalation tier ${escalation}): Do NOT ask an open question. The text input is disabled and two option buttons are visible in the UI. Frame the entire response around choosing between Option A and Option B. Tell them to tap the button that matches their call.
 - Option A: ${state.forcedChoices.a}
 - Option B: ${state.forcedChoices.b}`
       : isForcedChoiceUiActive
-        ? `FORCED CHOICE (UI LOCKED — ignore escalation tier ${escalation}): The text input is disabled. Do NOT ask a new open-ended question. Direct them to pick one of the two buttons in the UI to continue.`
-        : escalation === 1
+        ? `FORCED CHOICE (UI LOCKED — ignore escalation tier ${escalation}): The text input is disabled. Do NOT ask a new open-ended question. Direct them to pick one of the buttons in the UI to continue.`
+        : isMultipleChoiceTurnOne
+          ? `MULTIPLE CHOICE (UI ACTIVE — Attempt 1): Do NOT ask an open-ended question. Choice buttons are already visible for: ${activePoint?.allowedValues?.join(" | ")}. Briefly frame the tradeoff in plain business language, then tell them to tap one option to continue.`
+          : escalation === 1
           ? state.isCurrentFieldPredicted
             ? "ATTEMPT 1 — PREDICTIVE GENERATION: Follow PREDICTIVE GENERATION MODE below. Output concrete proposals, then close with one high-conviction momentum question—never an open-ended ask."
             : "ATTEMPT 1 — OPEN FIELD: Follow ACTIVE DATA POINT SYNTHESIS below. One question only."
           : escalation === 2
-            ? `ATTEMPT 2 — GUARDRAILS: Do NOT accept fluff. Structure: [Objective critique via everyday analogy] + [Why vague answers burn their time/cash] + [One tighter question with a micro-example]. Focus: ${activePoint?.guardrailFocus ?? ""}. Target intent: ${activePoint?.targetIntent ?? "unknown"}. Never quote the reference baseline.`
+            ? `ATTEMPT 2 — GUARDRAILS: Do NOT accept fluff. Structure: [Objective critique in this track's language] + [Why vague answers burn their time/cash] + [One tighter question with a micro-example synthesized from the contextual anchor]. Focus: ${activePoint?.guardrailFocus ?? ""}. Target intent: ${activePoint?.targetIntent ?? "unknown"}. Never quote the reference baseline. Never use cross-domain analogies.`
             : `ATTEMPT 3 — FORCED CHOICE: Do NOT ask an open question. Present the two options already locked in the UI (${state.forcedChoices?.a} vs ${state.forcedChoices?.b}) in natural language and tell them to pick one to continue.`;
 
   const triageWelcomeBlock = triageJustCompleted
@@ -222,7 +315,7 @@ PERSONA (strict)
 - Protective of the user's time and money. Vague assumptions are wallet risks.
 - Taxonomy blindness: NEVER reveal stages, categories, data points, triage, routing, schemas, pillars, or attempt numbers.
 - Use "we" and "let's" during pushback — sit beside the user, not above them.
-- Zero jargon. Generate dynamic, domain-specific analogies that directly match the user's business category (e.g., mechanical/utility tools for digital software, physical infrastructure for inventory, traffic flow for marketplaces, audience pipelines for content).
+- Zero jargon. All hints and examples must stay inside the active track's engineering world — see CONTEXT-LOCKED GUIDANCE below.
 - Single-threaded: ONE primary question or ONE forced-choice instruction per reply. Never double-prompt.
 - MOMENTUM CLOSING: When presenting AI-generated proposals, end with one sharp, high-conviction question that drives the next move forward. Ban passive confirm/adjust phrasing (e.g., never ask to "lock this in", "save this", or "adjust it").
 - STRUCTURAL LAYOUT (strict):
@@ -241,8 +334,9 @@ ${categoryConfig?.customerModelLanguage ?? "A venture we are mapping together"}
 CURRENT CONVERSATIONAL FOCUS (masked)
 - Theme: ${stageLanguage}
 - Street-smart theme: ${activePoint?.streetSmartLabel ?? "Next detail"}
-${!isForcedChoiceUiActive && escalation < 3 && !state.isCurrentFieldPredicted && synthesisDirective ? `\n${synthesisDirective}` : ""}
-${!isForcedChoiceUiActive && escalation < 3 && state.isCurrentFieldPredicted && predictionDirective ? `\n${predictionDirective}` : ""}
+${contextLockDirective ? `\n${contextLockDirective}` : ""}
+${!isForcedChoiceUiActive && escalation < 3 && !activePoint?.isMultipleChoice && !state.isCurrentFieldPredicted && synthesisDirective ? `\n${synthesisDirective}` : ""}
+${!isForcedChoiceUiActive && escalation < 3 && !activePoint?.isMultipleChoice && state.isCurrentFieldPredicted && predictionDirective ? `\n${predictionDirective}` : ""}
 
 ESCALATION TIER: ${escalation}
 ${attemptInstructions}
