@@ -15,7 +15,6 @@ export const SHARED_FOUNDATION_DATA_POINTS: readonly DataPointDefinitionInput[] 
       "A specific human or job title with a concrete context — not 'everyone', 'small businesses', or vague groups.",
     guardrailFocus:
       "Force one narrow starting customer segment — not a broad market.",
-    contextualExample: "Solo freelance designers billing under $100k/year",
   },
   {
     key: "core_friction",
@@ -31,7 +30,6 @@ export const SHARED_FOUNDATION_DATA_POINTS: readonly DataPointDefinitionInput[] 
       "A specific, recurring pain tied to the target human — measurable frustration, not a generic wish.",
     guardrailFocus:
       "Name one recurring workflow leak that costs them time or money every week.",
-    contextualExample: "Manually copying invoice line items into spreadsheets every Friday",
   },
   {
     key: "core_utility",
@@ -47,7 +45,6 @@ export const SHARED_FOUNDATION_DATA_POINTS: readonly DataPointDefinitionInput[] 
       "A clear outcome the customer gets — a concrete win, not feature jargon.",
     guardrailFocus:
       "State one outcome the customer can picture on first use — not a roadmap pitch.",
-    contextualExample: "Send a polished client invoice in under 60 seconds",
   },
 ];
 

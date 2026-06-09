@@ -8,7 +8,6 @@ import {
 } from "@/lib/ai/gauntlet/categories/1-3-experiential-software";
 import { stubCategoryConfigs } from "@/lib/ai/gauntlet/categories/stubs";
 import {
-  formatContextualExampleForSchema,
   isUserAcquisitionDataPoint,
 } from "@/lib/ai/gauntlet/data-point-utils";
 import type {
@@ -156,7 +155,7 @@ export function buildQuestionnaireSchemaForCategory(
   return config.dataPoints
     .map(
       (point) =>
-        `- ${point.key} (section: ${point.section}; intent: ${point.targetIntent}; validation: ${point.analystCriteria}; label: ${point.streetSmartLabel}; contextual example: ${formatContextualExampleForSchema(point)}${
+        `- ${point.key} (section: ${point.section}; intent: ${point.targetIntent}; validation: ${point.analystCriteria}; label: ${point.streetSmartLabel}${
           point.isMultipleChoice && point.allowedValues
             ? `; multiple-choice: ${point.allowedValues.join(" | ")}`
             : point.allowedValues

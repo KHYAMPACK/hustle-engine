@@ -4,7 +4,10 @@ import {
   getStageMaskLanguage,
   tryGetCategoryConfig,
 } from "@/lib/ai/gauntlet/category-registry";
-import { getForcedChoiceOptions, resolveContextualExample } from "@/lib/ai/gauntlet/data-point-utils";
+import { getForcedChoiceOptions } from "@/lib/ai/gauntlet/data-point-utils";
+import {
+  DYNAMIC_CONTEXT_ANCHOR_KEY,
+} from "@/lib/ai/gauntlet/dynamic-context-anchor";
 import { mergeExtractedFields } from "@/lib/ai/gauntlet/state-machine";
 import type {
   CategoryTrackConfig,
@@ -129,10 +132,13 @@ function buildContextualExampleResolverContext(
   );
   const inspirationBaseline =
     extractedData.inspiration_baseline?.trim() || undefined;
+  const dynamicContextAnchor =
+    extractedData[DYNAMIC_CONTEXT_ANCHOR_KEY]?.trim() || undefined;
 
   return {
     extractedData,
     inspirationBaseline,
+    dynamicContextAnchor,
     history,
   };
 }
@@ -146,28 +152,31 @@ function buildContextLockDirective(
     return "";
   }
 
-  const resolvedExample = resolveContextualExample(activePoint, resolverContext);
-  if (!resolvedExample) {
+  const dynamicAnchor = resolverContext.dynamicContextAnchor?.trim();
+  if (!dynamicAnchor) {
     return "";
   }
 
-  const dynamicNote =
-    typeof activePoint.contextualExample === "function" && resolverContext.inspirationBaseline
-      ? `- Dynamic anchor source: inspiration_baseline = "${resolverContext.inspirationBaseline}"`
-      : typeof activePoint.contextualExample === "function"
-        ? "- Dynamic anchor: no inspiration_baseline locked yet — use broad track-safe baseline"
-        : "";
+  const inspirationNote = resolverContext.inspirationBaseline
+    ? `- Inspiration baseline (locked): "${resolverContext.inspirationBaseline}"`
+    : "";
 
   return `CONTEXT-LOCKED GUIDANCE (mandatory when giving hints, micro-examples, or structural suggestions)
 - You are STRICTLY FORBIDDEN from using analogies, examples, or metaphors outside the active business track.
 - Active track world: "${categoryConfig?.customerModelLanguage ?? "the venture we are mapping"}"
 - FORBIDDEN cross-domain leakage: no restaurant/dining metaphors; no SaaS billing examples on game tracks; no game mechanics on cloud SaaS tracks; no physical retail unless the track is physical inventory.
-${dynamicNote ? `${dynamicNote}\n` : ""}- Internal conceptual blueprint (NEVER user-facing copy — do NOT repeat, paraphrase closely, or lift any wording from this block): """${resolvedExample}"""
+${inspirationNote ? `${inspirationNote}\n` : ""}- Internal conceptual blueprint (NEVER user-facing copy — do NOT repeat, paraphrase closely, or lift any wording from this block): """${dynamicAnchor}"""
+
+DYNAMIC IN-CONTEXT GUIDANCE MANDATE:
+You must dynamically synthesize all hints, micro-examples, and structural strategies on the fly.
+Base your examples strictly on the user's explicit domain track ("${categoryConfig?.customerModelLanguage ?? "the venture we are mapping"}") and any matching state inside their logged values.
+DO NOT use generic boilerplate or cross-domain metaphors (e.g., no restaurant analogies on software tracks).
+Invent fresh, hyper-targeted application scenarios using completely unique verbs and tasks matching their current build path.
 
 LINGUISTIC ISOLATION (mandatory — violations fail the turn)
 - Treat the blueprint above as a *conceptual direction only*: domain, engineering theme, and the type of value being chased — NOT a text snippet to copy.
 - When you offer a hint, micro-example, or structural suggestion, you MUST invent a *brand-new, unique application* inside that exact same engineering domain — fresh verbs, fresh tasks, fresh scenarios the user has not already heard from us.
-- STRICTLY FORBIDDEN from the blueprint: reuse of its specific nouns, distinctive phrases, sentence shapes, or exact UI/interaction beats (e.g., if the blueprint mentions ticking an item to feed a resource, you may NOT echo that tick/feed/resource pattern — invent a different mechanic in the same genre).
+- STRICTLY FORBIDDEN from the blueprint: reuse of its specific nouns, distinctive phrases, sentence shapes, or exact UI/interaction beats.
 - The user must never be able to trace your wording back to the internal blueprint. If your hint sounds like a shortened version of the anchor, rewrite it entirely before responding.`;
 }
 
@@ -252,7 +261,7 @@ Output ONLY the assistant message text.`;
   const activePoint =
     nextDataPoint ??
     (categoryConfig
-      ? getDataPointByKey(categoryConfig, state.activeDataPoint)
+      ? getDataPointByKey(categoryConfig, state.activeDataPoint) ?? null
       : null);
   const stageLanguage = categoryConfig
     ? getStageMaskLanguage(categoryConfig, state.currentStage)

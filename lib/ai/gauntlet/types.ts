@@ -17,25 +17,21 @@ export type BusinessCategoryId =
 
 export type ExtractedData = Record<string, string>;
 
-/** Recent conversation turn for sub-genre inference before Q1 is locked. */
+/** Recent conversation turn for dynamic context resolution. */
 export type ContextualExampleHistoryEntry = {
   role: string;
   text: string;
 };
 
-/** Inputs for resolving a dynamic contextualExample anchor. */
+/** Inputs for Pass B context-locked hint generation. */
 export type ContextualExampleResolverContext = {
   extractedData: ExtractedData;
-  /** Locked value for inspiration_baseline (1.1C Q1) when validated. */
+  /** Locked value for inspiration_baseline when validated. */
   inspirationBaseline?: string;
+  /** Runtime-generated domain blueprint — primary hint anchor when present. */
+  dynamicContextAnchor?: string;
   history: ContextualExampleHistoryEntry[];
 };
-
-export type ContextualExampleResolver = (
-  context: ContextualExampleResolverContext,
-) => string;
-
-export type ContextualExample = string | ContextualExampleResolver;
 
 export type DataPointGenerationMode = "user_input" | "ai_predict";
 
@@ -97,8 +93,6 @@ export type DataPointDefinition = {
   referenceBaseline: string;
   guardrailFocus: string;
   streetSmartLabel: string;
-  /** Static or dynamic hint anchor — functions receive locked inspiration_baseline + history. */
-  contextualExample: ContextualExample;
   allowedValues?: readonly string[];
 };
 

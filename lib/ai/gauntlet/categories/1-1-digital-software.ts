@@ -26,7 +26,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "A specific human, job title, or niche audience — not 'everyone', 'small businesses', or vague groups.",
     guardrailFocus:
       "Force one narrow ICP — one job title or workflow owner, not a broad market.",
-    contextualExample: "Solo bookkeepers managing 5–15 small-business clients",
   },
   {
     key: "core_friction",
@@ -42,7 +41,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "One specific recurring pain tied to the target user — emotional, financial, or daily annoyance — not a generic wish.",
     guardrailFocus:
       "Name one recurring task that breaks their weekly workflow — not a vague ' inefficiency'.",
-    contextualExample: "Reconciling Stripe payouts against QuickBooks by hand every Monday",
   },
   {
     key: "core_utility",
@@ -58,7 +56,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "A concrete instant outcome within the first session — not a feature list or long-term vision.",
     guardrailFocus:
       "One first-session win they can describe in a single sentence.",
-    contextualExample: "See every unpaid invoice and its age in one dashboard view",
   },
   {
     key: "waitlist_slogan",
@@ -74,7 +71,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "A punchy, specific headline a real person would repeat — not generic marketing fluff or corporate jargon.",
     guardrailFocus:
       "One sentence a tired operator would actually say — not ad-speak.",
-    contextualExample: "Stop chasing invoice payments — get paid the day the job is done",
   },
   {
     key: "verification_ask",
@@ -90,7 +86,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "A concrete validation metric or action with a number or clear threshold — email count, calls, pre-orders, etc.",
     guardrailFocus:
       "One measurable hurdle with a number — not 'see if people are interested'.",
-    contextualExample: "50 waitlist signups before wiring the Stripe integration",
   },
   {
     key: "fishing_hole",
@@ -106,7 +101,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "Named specific community — subreddit, Facebook group, forum, Discord — not 'social media' or 'the internet'.",
     guardrailFocus:
       "One named community — not a platform category like 'LinkedIn'.",
-    contextualExample: "r/freelance on Reddit",
   },
   {
     key: "builder_lane",
@@ -124,7 +118,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "Must resolve to exactly one of: Lego (no-code), AI (AI-assisted build), or Custom (hand-coded from scratch).",
     guardrailFocus:
       "Match build weight to budget and hours — custom code on zero runway is a trap.",
-    contextualExample: "Lego — Bubble app with Stripe plug-in and Supabase auth",
   },
   {
     key: "core_scissors",
@@ -140,7 +133,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "Explicit named features or ambitions deferred from MVP — not vague 'keep it simple'.",
     guardrailFocus:
       "Name one feature temptation that would burn weeks with zero early revenue.",
-    contextualExample: "Multi-currency billing — defer until first 10 paying customers",
   },
   {
     key: "resource_urgency",
@@ -156,7 +148,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "Specific weekly hours AND a monthly cash budget for tools — both numbers or ranges required.",
     guardrailFocus:
       "Both numbers required — vague 'a few hours' and 'as cheap as possible' burn runway.",
-    contextualExample: "8 hours/week, $40/month on hosting and SaaS tools",
   },
   {
     key: "database_brain",
@@ -172,7 +163,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "Named data entities or fields the system must persist — user emails, scores, logs, profiles, etc.",
     guardrailFocus:
       "List concrete tables or fields — not 'user data' without specifics.",
-    contextualExample: "User email, invoice line items, payment status, client name",
   },
   {
     key: "interface_face",
@@ -188,7 +178,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "Specific UI elements — buttons, inputs, boxes, screens — not abstract 'dashboard' without components.",
     guardrailFocus:
       "One primary screen with named UI elements — not a full product tour.",
-    contextualExample: "Invoice list table, New Invoice button, status badge per row",
   },
   {
     key: "price_tag",
@@ -204,7 +193,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "Price amount or range PLUS mechanism — one-time, subscription, or usage — with concrete numbers.",
     guardrailFocus:
       "A dollar amount plus billing mechanism — not 'affordable' without numbers.",
-    contextualExample: "$12/month per seat, recurring Stripe subscription",
   },
   {
     key: "home_base",
@@ -220,7 +208,6 @@ const DIGITAL_SOFTWARE_DATA_POINTS: readonly DataPointDefinitionInput[] = [
       "A specific country of residence — not multiple regions or 'global'.",
     guardrailFocus:
       "One country of operation — needed for Stripe, tax, and entity routing.",
-    contextualExample: "United States — Stripe + standard US sales tax rules",
   },
 ];
 

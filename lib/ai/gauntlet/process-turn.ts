@@ -6,6 +6,7 @@ import {
   tryGetCategoryConfig,
 } from "@/lib/ai/gauntlet/category-registry";
 import { buildActiveQuestionContext } from "@/lib/ai/gauntlet/data-point-utils";
+import { ensureDynamicContextAnchor } from "@/lib/ai/gauntlet/dynamic-context-anchor";
 import {
   emptyPassAAnalysis,
   runBackendDerivationPassA,
@@ -166,6 +167,11 @@ export async function processGauntletTurn(
       categoryConfig,
       conversationSummary,
     );
+    state = await ensureDynamicContextAnchor(
+      state,
+      categoryConfig,
+      conversationSummary,
+    );
 
     const message = await runPassBPersona({
       state,
@@ -240,6 +246,12 @@ export async function processGauntletTurn(
   );
 
   const activeConfig = getCategoryConfig(state.category);
+  state = await ensureDynamicContextAnchor(
+    state,
+    activeConfig,
+    conversationSummary,
+  );
+
   const nextDataPoint =
     getNextUnpopulatedDataPoint(activeConfig, state.extractedData) ??
     getDataPointByKey(activeConfig, state.activeDataPoint) ??

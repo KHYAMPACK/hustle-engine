@@ -1,8 +1,6 @@
 import type {
   ActiveQuestionContext,
   CategoryTrackConfig,
-  ContextualExample,
-  ContextualExampleResolverContext,
   DataPointDefinition,
   DataPointSection,
   ForcedChoices,
@@ -12,11 +10,10 @@ export type { ContextualExampleResolverContext } from "@/lib/ai/gauntlet/types";
 
 export type DataPointDefinitionInput = Omit<
   DataPointDefinition,
-  "isMultipleChoice" | "section" | "contextualExample"
+  "isMultipleChoice" | "section"
 > & {
   isMultipleChoice?: boolean;
   section?: DataPointSection;
-  contextualExample?: ContextualExample;
 };
 
 export const DEFAULT_DATA_POINT_FLAGS = {
@@ -27,43 +24,11 @@ export const DEFAULT_DATA_POINT_FLAGS = {
 export function normalizeDataPoint(
   point: DataPointDefinitionInput,
 ): DataPointDefinition {
-  let contextualExample: ContextualExample;
-  if (typeof point.contextualExample === "function") {
-    contextualExample = point.contextualExample;
-  } else {
-    contextualExample = point.contextualExample?.trim() ?? "";
-  }
-
   return {
     ...point,
     isMultipleChoice: point.isMultipleChoice ?? DEFAULT_DATA_POINT_FLAGS.isMultipleChoice,
     section: point.section ?? DEFAULT_DATA_POINT_FLAGS.section,
-    contextualExample,
   };
-}
-
-export function resolveContextualExample(
-  point: DataPointDefinition,
-  context: ContextualExampleResolverContext,
-): string {
-  const { contextualExample } = point;
-  if (typeof contextualExample === "function") {
-    return contextualExample(context).trim();
-  }
-  return contextualExample.trim();
-}
-
-export function formatContextualExampleForSchema(
-  point: DataPointDefinition,
-  context?: ContextualExampleResolverContext,
-): string {
-  if (typeof point.contextualExample === "function") {
-    if (context) {
-      return resolveContextualExample(point, context);
-    }
-    return "(dynamic — resolves from inspiration_baseline)";
-  }
-  return point.contextualExample;
 }
 
 export function normalizeCategoryConfig(
