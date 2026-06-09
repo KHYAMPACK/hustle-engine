@@ -145,3 +145,48 @@ export function getCustomerModelLanguage(categoryId: string): string {
     "A venture we're mapping together"
   );
 }
+
+const LEGACY_CATEGORY_ALIASES: Record<string, BusinessCategoryId> = {
+  "1.1_digital_software": "1.1D_cloud_utility_saas",
+  "1.1_saas": "1.1D_cloud_utility_saas",
+  "1.1a_static_assets": "1.1A_static_assets",
+  "1.1b_ecosystem_extensions": "1.1B_ecosystem_extensions",
+  "1.1c_experiential_software": "1.1C_experiential_software",
+  "1.1d_cloud_utility_saas": "1.1D_cloud_utility_saas",
+  saas_digital: "1.1D_cloud_utility_saas",
+  micro_saas: "1.1D_cloud_utility_saas",
+  web_app: "1.1D_cloud_utility_saas",
+  software: "1.1D_cloud_utility_saas",
+  digital_software: "1.1D_cloud_utility_saas",
+  chrome_extension: "1.1B_ecosystem_extensions",
+  wordpress_plugin: "1.1B_ecosystem_extensions",
+  shopify_app: "1.1B_ecosystem_extensions",
+  figma_plugin: "1.1B_ecosystem_extensions",
+  mobile_game: "1.1C_experiential_software",
+  video_game: "1.1C_experiential_software",
+  gumroad: "1.1A_static_assets",
+  digital_product: "1.1A_static_assets",
+  notion_template: "1.1A_static_assets",
+  marketplace: "3.1_platform_marketplace",
+  local_service: "2.1_solo_freelance",
+  physical_goods: "1.2_physical_inventory",
+  brick_and_mortar: "1.2_physical_inventory",
+  creator_content: "1.3_media_content_ip",
+  consulting_agency: "2.2_agency_managed",
+  hardware_deep_tech: "3.3_financial_capital",
+};
+
+export function resolveClassifiedCategory(
+  raw: string | null | undefined,
+): BusinessCategoryId | null {
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = raw.trim().toLowerCase().replace(/\s+/g, "_");
+  if (isValidBusinessCategory(normalized)) {
+    return normalized;
+  }
+
+  return LEGACY_CATEGORY_ALIASES[normalized] ?? null;
+}

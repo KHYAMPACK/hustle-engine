@@ -1,14 +1,10 @@
 "use client";
 
-import { tryGetCategoryConfig } from "@/lib/ai/gauntlet/category-registry";
 import {
-  DYNAMIC_CONTEXT_ANCHOR_KEY,
-  hasDynamicContextAnchor,
-} from "@/lib/ai/gauntlet/dynamic-context-anchor";
-import {
-  getBackendGenerationDataPoints,
-  getUserAcquisitionDataPoints,
-} from "@/lib/ai/gauntlet/data-point-utils";
+  CATEGORY_FIELD_KEY,
+  PROMPTED_EXTRACTION_FIELDS,
+} from "@/lib/ai/gauntlet/scoping-fields";
+import { getTaxonomyEntry } from "@/lib/ai/gauntlet/taxonomy";
 import type { OnboardingSessionState } from "@/lib/ai/gauntlet/types";
 import type { UIMessage } from "ai";
 
@@ -57,85 +53,29 @@ function DebugFieldList({
   );
 }
 
-function DynamicBlueprintPanel({ state }: { state: OnboardingSessionState }) {
-  const blueprint = state.extractedData[DYNAMIC_CONTEXT_ANCHOR_KEY]?.trim();
-
-  return (
-    <section>
-      <h3 className="text-[10px] font-semibold tracking-[0.2em] text-muted uppercase">
-        Domain Blueprint
-      </h3>
-      <p className="mt-0.5 text-[10px] text-muted/80">
-        Runtime-generated context anchor (Pass B internal)
-      </p>
-
-      <div className="mt-2 rounded-sm border border-dashed border-violet-500/35 bg-violet-500/[0.04] px-2.5 py-2">
-        {blueprint ? (
-          <pre className="font-mono text-[10px] leading-snug whitespace-pre-wrap break-words text-foreground/90">
-            {blueprint}
-          </pre>
-        ) : (
-          <p className="text-[10px] italic text-muted">
-            Not generated yet — locks when inspiration_baseline is captured.
-          </p>
-        )}
-        <p className="mt-2 font-mono text-[9px] text-muted">
-          status: {hasDynamicContextAnchor(state.extractedData) ? "ready" : "pending"}
-        </p>
-      </div>
-    </section>
-  );
-}
-
 export function GauntletDebugPanel({
   state,
   onDismiss,
 }: GauntletDebugPanelProps) {
-  const config = state ? tryGetCategoryConfig(state.category) : null;
+  const scopingFields: { key: string; label: string; value: string }[] = [];
+  let categoryLabel: string | null = null;
 
-  const populatedUserFields: { key: string; label: string; value: string }[] = [];
-  const populatedBackendFields: { key: string; label: string; value: string }[] = [];
-  const otherFields: { key: string; label: string; value: string }[] = [];
-
-  if (state && config) {
-    const knownKeys = new Set(config.dataPoints.map((point) => point.key));
-    knownKeys.add(DYNAMIC_CONTEXT_ANCHOR_KEY);
-
-    for (const point of getUserAcquisitionDataPoints(config)) {
-      const value = state.extractedData[point.key]?.trim();
+  if (state) {
+    for (const field of PROMPTED_EXTRACTION_FIELDS) {
+      const value = state.extractedData[field.key]?.trim();
       if (value) {
-        populatedUserFields.push({
-          key: point.key,
-          label: point.streetSmartLabel,
+        scopingFields.push({
+          key: field.key,
+          label: field.label,
           value,
         });
       }
     }
 
-    for (const point of getBackendGenerationDataPoints(config)) {
-      const value = state.extractedData[point.key]?.trim();
-      if (value) {
-        populatedBackendFields.push({
-          key: point.key,
-          label: point.streetSmartLabel,
-          value,
-        });
-      }
-    }
-
-    for (const [key, raw] of Object.entries(state.extractedData)) {
-      const value = raw?.trim();
-      if (!value || knownKeys.has(key)) {
-        continue;
-      }
-      otherFields.push({ key, label: key, value });
-    }
-  } else if (state) {
-    for (const [key, raw] of Object.entries(state.extractedData)) {
-      const value = raw?.trim();
-      if (value && key !== DYNAMIC_CONTEXT_ANCHOR_KEY) {
-        otherFields.push({ key, label: key, value });
-      }
+    const categoryId = state.extractedData[CATEGORY_FIELD_KEY]?.trim();
+    if (categoryId) {
+      categoryLabel =
+        getTaxonomyEntry(categoryId)?.customerModelLanguage ?? categoryId;
     }
   }
 
@@ -164,44 +104,23 @@ export function GauntletDebugPanel({
       <div className="flex-1 space-y-5 overflow-y-auto px-3 py-3">
         <section className="rounded-sm border border-border/60 bg-background/50 px-2.5 py-2 font-mono text-[10px] text-muted">
           <p>
-            <span className="text-foreground/70">category:</span>{" "}
-            {state?.category ?? "—"}
-          </p>
-          <p className="mt-1">
             <span className="text-foreground/70">active:</span>{" "}
             {state?.activeDataPoint ?? "—"}
           </p>
           <p className="mt-1">
-            <span className="text-foreground/70">stage:</span>{" "}
-            {state?.currentStage ?? "—"}
+            <span className="text-foreground/70">category key:</span>{" "}
+            {state?.extractedData[CATEGORY_FIELD_KEY]?.trim() || "—"}
           </p>
-          <p className="mt-1">
-            <span className="text-foreground/70">escalation:</span>{" "}
-            {state?.escalationAttempt ?? "—"}
-          </p>
+          {categoryLabel && (
+            <p className="mt-1 leading-snug text-foreground/80">{categoryLabel}</p>
+          )}
         </section>
 
-        {state && <DynamicBlueprintPanel state={state} />}
-
         <DebugFieldList
-          title="Section 1 · User"
-          subtitle="Chat-facing answers"
-          fields={populatedUserFields}
+          title="Extracted Scoping"
+          subtitle="Project Type → Skill Level → Available Time → Budget"
+          fields={scopingFields}
         />
-
-        <DebugFieldList
-          title="Section 2 · Backend"
-          subtitle="AI-derived milestone params"
-          fields={populatedBackendFields}
-        />
-
-        {otherFields.length > 0 && (
-          <DebugFieldList
-            title="Other"
-            subtitle="Unmapped or pre-triage keys"
-            fields={otherFields}
-          />
-        )}
       </div>
     </aside>
   );

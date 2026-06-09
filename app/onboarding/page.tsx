@@ -6,7 +6,6 @@ import { LeanLedger } from "@/app/onboarding/LeanLedger";
 import { getMessageText } from "@/lib/chat-utils";
 import { GauntletDebugPanel } from "@/app/onboarding/GauntletDebugPanel";
 import { postGauntletChat } from "@/lib/ai/gauntlet/client";
-import { getForcedChoiceOptions } from "@/lib/ai/gauntlet/data-point-utils";
 import type {
   ActiveQuestionContext,
   ForcedChoices,
@@ -929,9 +928,7 @@ function OnboardingPageInner() {
   const isMultipleChoiceTurn =
     Boolean(activeQuestion?.isMultipleChoice && activeQuestion.choiceOptions?.length) &&
     !isInputLocked;
-  const choiceButtonOptions = isInputLocked
-    ? getForcedChoiceOptions(forcedChoices)
-    : (activeQuestion?.choiceOptions ?? []);
+  const choiceButtonOptions = activeQuestion?.choiceOptions ?? [];
   const showChoiceButtons = choiceButtonOptions.length > 0;
   const hideTextInput = isMultipleChoiceTurn;
   const chatLocked =

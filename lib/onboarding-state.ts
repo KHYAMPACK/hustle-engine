@@ -25,10 +25,11 @@
  */
 
 import { formatUnknownError } from "@/lib/format-error";
-import { createPendingSessionState } from "@/lib/ai/gauntlet/triage";
-import { getCategoryConfig, resolveClassifiedCategory } from "@/lib/ai/gauntlet/category-registry";
-import { syncActiveDataPointPredictionFlag } from "@/lib/ai/gauntlet/state-machine";
-import { isPendingCategory } from "@/lib/ai/gauntlet/taxonomy";
+import {
+  createPendingSessionState,
+  refreshSessionProgress,
+} from "@/lib/ai/gauntlet/session-defaults";
+import { resolveClassifiedCategory } from "@/lib/ai/gauntlet/taxonomy";
 import type {
   ExtractedData,
   ForcedChoices,
@@ -54,6 +55,39 @@ type OnboardingSessionRow = {
   backward_edit_count: number;
 };
 
+function repairLegacySessionState(
+  state: Omit<OnboardingSessionState, "isCurrentFieldPredicted">,
+): Omit<OnboardingSessionState, "isCurrentFieldPredicted"> {
+  const resolvedCategory = resolveClassifiedCategory(state.category);
+  const extractedData = { ...state.extractedData };
+
+  if (
+    resolvedCategory &&
+    !extractedData.category?.trim()
+  ) {
+    extractedData.category = resolvedCategory;
+  }
+
+  return {
+    ...state,
+    category: resolvedCategory ?? state.category,
+    extractedData,
+    isInputLocked: false,
+    forcedChoices: null,
+    escalationAttempt: 1,
+    activeException: null,
+  };
+}
+
+function hydrateSessionState(
+  state: Omit<OnboardingSessionState, "isCurrentFieldPredicted">,
+): OnboardingSessionState {
+  return refreshSessionProgress({
+    ...repairLegacySessionState(state),
+    isCurrentFieldPredicted: false,
+  });
+}
+
 function rowToState(row: OnboardingSessionRow): OnboardingSessionState {
   const forcedChoices: ForcedChoices | null =
     row.forced_choice_a && row.forced_choice_b
@@ -74,73 +108,22 @@ function rowToState(row: OnboardingSessionRow): OnboardingSessionState {
   });
 }
 
-function repairLockedSessionState(
-  state: Omit<OnboardingSessionState, "isCurrentFieldPredicted">,
-): Omit<OnboardingSessionState, "isCurrentFieldPredicted"> {
-  const resolvedCategory =
-    resolveClassifiedCategory(state.category) ?? state.category;
-
-  let next: Omit<OnboardingSessionState, "isCurrentFieldPredicted"> = {
-    ...state,
-    category: resolvedCategory,
-  };
-
-  if (!next.isInputLocked || next.forcedChoices) {
-    return next;
-  }
-
-  const fallbackChoices: ForcedChoices =
-    next.activeException === "budget_ambition_paradox"
-      ? {
-          a: "Scale the build down to match the budget and hours we actually have.",
-          b: "Increase budget or weekly hours before we commit to this heavier build path.",
-        }
-      : {
-          a: "Double down on the immediate, high-pain group we just discussed.",
-          b: "Pivot to a completely separate alternative angle to test first.",
-        };
-
-  return {
-    ...next,
-    forcedChoices: fallbackChoices,
-    escalationAttempt: 3,
-  };
-}
-
-function hydrateSessionState(
-  state: Omit<OnboardingSessionState, "isCurrentFieldPredicted">,
-): OnboardingSessionState {
-  const repaired = repairLockedSessionState(state);
-
-  if (isPendingCategory(repaired.category)) {
-    return { ...repaired, isCurrentFieldPredicted: false };
-  }
-
-  try {
-    const config = getCategoryConfig(repaired.category);
-    return syncActiveDataPointPredictionFlag(
-      { ...repaired, isCurrentFieldPredicted: false },
-      config,
-    );
-  } catch {
-    return { ...repaired, isCurrentFieldPredicted: false };
-  }
-}
-
 function stateToRow(state: OnboardingSessionState, userId: string) {
+  const normalized = refreshSessionProgress(state);
+
   return {
     user_id: userId,
-    project_id: state.projectId,
-    category: state.category,
-    current_stage: state.currentStage,
-    active_data_point: state.activeDataPoint,
-    escalation_attempt: state.escalationAttempt,
-    is_input_locked: state.isInputLocked,
-    extracted_data: state.extractedData,
-    forced_choice_a: state.forcedChoices?.a ?? null,
-    forced_choice_b: state.forcedChoices?.b ?? null,
-    active_exception: state.activeException,
-    backward_edit_count: state.backwardEditCount,
+    project_id: normalized.projectId,
+    category: normalized.category,
+    current_stage: normalized.currentStage,
+    active_data_point: normalized.activeDataPoint,
+    escalation_attempt: normalized.escalationAttempt,
+    is_input_locked: normalized.isInputLocked,
+    extracted_data: normalized.extractedData,
+    forced_choice_a: normalized.forcedChoices?.a ?? null,
+    forced_choice_b: normalized.forcedChoices?.b ?? null,
+    active_exception: normalized.activeException,
+    backward_edit_count: normalized.backwardEditCount,
     updated_at: new Date().toISOString(),
   };
 }

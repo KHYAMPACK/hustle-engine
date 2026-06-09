@@ -1,41 +1,20 @@
 import { getMessageText } from "@/lib/chat-utils";
+import { runPersonaResponse } from "@/lib/ai/gauntlet/persona-response";
 import {
-  getCategoryConfig,
-  getDataPointByKey,
-  getNextUnpopulatedDataPoint,
-  tryGetCategoryConfig,
-} from "@/lib/ai/gauntlet/category-registry";
-import { buildActiveQuestionContext } from "@/lib/ai/gauntlet/data-point-utils";
-import { ensureDynamicContextAnchor } from "@/lib/ai/gauntlet/dynamic-context-anchor";
-import {
-  emptyPassAAnalysis,
-  runBackendDerivationPassA,
-  runPassAAnalyst,
-  runTriagePassA,
-} from "@/lib/ai/gauntlet/pass-a-analyst";
-import {
-  buildOpeningPassBContext,
-  runPassBPersona,
-} from "@/lib/ai/gauntlet/pass-b-persona";
-import { applyPassAToState } from "@/lib/ai/gauntlet/state-machine";
-import {
-  applyTriagePassAToState,
-  PENDING_ACTIVE_DATA_POINT,
-} from "@/lib/ai/gauntlet/triage";
+  mergeExtractedFields,
+  refreshSessionProgress,
+} from "@/lib/ai/gauntlet/session-defaults";
+import { getFirstMissingPromptedField } from "@/lib/ai/gauntlet/scoping-fields";
+import { runUnifiedTurnAnalysis } from "@/lib/ai/gauntlet/unified-turn";
 import type {
-  CategoryTrackConfig,
+  ActiveQuestionContext,
   GauntletChatResponse,
-  GauntletException,
   OnboardingSessionState,
-  PassAAnalysis,
 } from "@/lib/ai/gauntlet/types";
-import { EXCEPTION_SCRIPTS } from "@/lib/ai/gauntlet/types";
-import { isPendingCategory } from "@/lib/ai/gauntlet/taxonomy";
 import type { UIMessage } from "ai";
 
 function summarizeConversation(messages: UIMessage[]): string {
   return messages
-    .slice(-8)
     .map((message) => {
       const text = getMessageText(message).trim();
       if (!text) {
@@ -57,22 +36,54 @@ function getLastUserMessage(messages: UIMessage[]): string {
   return "";
 }
 
+function buildActiveQuestion(
+  state: OnboardingSessionState,
+): ActiveQuestionContext | null {
+  const missingField = getFirstMissingPromptedField(state.extractedData);
+  if (!missingField) {
+    return null;
+  }
+
+  return {
+    key: missingField.key,
+    isMultipleChoice: false,
+    section: "user_acquisition",
+    choiceOptions: null,
+  };
+}
+
 function buildGauntletResponse(
   message: string,
   state: OnboardingSessionState,
 ): GauntletChatResponse {
-  const categoryConfig = tryGetCategoryConfig(state.category);
-  const activeQuestion = categoryConfig
-    ? buildActiveQuestionContext(categoryConfig, state.activeDataPoint)
-    : null;
-
   return {
     message,
     state,
-    forcedChoices: state.forcedChoices,
-    isInputLocked: state.isInputLocked,
-    activeQuestion,
+    forcedChoices: null,
+    isInputLocked: false,
+    activeQuestion: buildActiveQuestion(state),
   };
+}
+
+function detectNewlyCapturedKeys(
+  before: OnboardingSessionState,
+  after: OnboardingSessionState,
+): string[] {
+  const keys = new Set([
+    ...Object.keys(before.extractedData),
+    ...Object.keys(after.extractedData),
+  ]);
+
+  const newlyCaptured: string[] = [];
+  for (const key of keys) {
+    const previous = before.extractedData[key]?.trim() ?? "";
+    const current = after.extractedData[key]?.trim() ?? "";
+    if (current && current !== previous) {
+      newlyCaptured.push(key);
+    }
+  }
+
+  return newlyCaptured;
 }
 
 export type ProcessGauntletTurnInput = {
@@ -81,113 +92,20 @@ export type ProcessGauntletTurnInput = {
   forcedChoice?: "a" | "b";
 };
 
-async function applyBackendDerivationIfReady(
-  state: OnboardingSessionState,
-  config: CategoryTrackConfig,
-  conversationSummary: string,
-): Promise<OnboardingSessionState> {
-  const derived = await runBackendDerivationPassA(
-    config,
-    state.extractedData,
-    conversationSummary,
-  );
-
-  if (Object.keys(derived).length === 0) {
-    return state;
-  }
-
-  return {
-    ...state,
-    extractedData: { ...state.extractedData, ...derived },
-  };
-}
-
 export async function processGauntletTurn(
   input: ProcessGauntletTurnInput,
 ): Promise<{ response: GauntletChatResponse; session: OnboardingSessionState }> {
-  const { messages, forcedChoice } = input;
-  let state = { ...input.session };
+  const { messages } = input;
+  let state = refreshSessionProgress({ ...input.session });
   const userMessage = getLastUserMessage(messages);
   const conversationSummary = summarizeConversation(messages);
 
-  if (!userMessage && !forcedChoice) {
-    const openingContext = buildOpeningPassBContext(state);
-    const message = await runPassBPersona(openingContext);
-
-    return {
-      response: buildGauntletResponse(message, state),
-      session: state,
-    };
-  }
-
-  if (isPendingCategory(state.category) && userMessage && !forcedChoice) {
-    const triage = await runTriagePassA(userMessage, conversationSummary);
-    const triageTransition = applyTriagePassAToState(state, triage);
-    state = triageTransition.state;
-
-    if (triage.isSplitParadoxDetected) {
-      return {
-        response: buildGauntletResponse(EXCEPTION_SCRIPTS.two_ideas, state),
-        session: state,
-      };
-    }
-
-    if (!triageTransition.triageCompleted) {
-      const message = await runPassBPersona({
-        state,
-        categoryConfig: null,
-        passA: emptyPassAAnalysis(),
-        userMessage,
-        conversationSummary,
-        exceptionScript: null,
-        nextDataPoint: null,
-        newlySkippedKeys: [],
-        resolvedActiveValue: null,
-        triageInvalidPitch: triageTransition.triageInvalidPitch,
-      });
-
-      return {
-        response: buildGauntletResponse(message, state),
-        session: state,
-      };
-    }
-
-    const categoryConfig = getCategoryConfig(state.category);
-    const passAActiveDataPointKey = state.activeDataPoint;
-    const passA = await runPassAAnalyst(
+  if (!userMessage) {
+    const message = await runPersonaResponse({
       state,
-      userMessage,
+      userMessage: "",
       conversationSummary,
-      categoryConfig,
-    );
-    const transition = applyPassAToState(state, passA, categoryConfig);
-    state = transition.state;
-    state = await applyBackendDerivationIfReady(
-      state,
-      categoryConfig,
-      conversationSummary,
-    );
-    state = await ensureDynamicContextAnchor(
-      state,
-      categoryConfig,
-      conversationSummary,
-    );
-
-    const message = await runPassBPersona({
-      state,
-      categoryConfig,
-      passA,
-      passAActiveDataPointKey,
-      userMessage,
-      conversationSummary,
-      exceptionScript: transition.exceptionScript,
-      nextDataPoint:
-        getNextUnpopulatedDataPoint(categoryConfig, state.extractedData) ??
-        getDataPointByKey(categoryConfig, state.activeDataPoint) ??
-        null,
-      newlySkippedKeys: transition.newlySkippedKeys,
-      resolvedActiveValue: transition.resolvedActiveValue,
-      triageJustCompleted: true,
+      isOpening: true,
     });
 
     return {
@@ -196,81 +114,29 @@ export async function processGauntletTurn(
     };
   }
 
-  const categoryConfig = getCategoryConfig(state.category);
+  const snapshotBeforeMerge = state;
+  const analysis = await runUnifiedTurnAnalysis(
+    state,
+    userMessage,
+    conversationSummary,
+  );
 
-  let passA: PassAAnalysis;
-  if (forcedChoice && state.isInputLocked && state.forcedChoices) {
-    passA = {
-      activeDataPointQuality: "specific",
-      activeDataPointValue:
-        forcedChoice === "a" ? state.forcedChoices.a : state.forcedChoices.b,
-      extractedFields: {},
-      skippedFieldKeys: [],
-      detectedCategory: null,
-      categoryDrift: false,
-      twoIdeasConflict: false,
-      pivotDetected: false,
-      budgetAmbitionParadox: false,
-      prematureStageJump: false,
-      backwardEditRequest: false,
-      forcedChoices: null,
-    };
-  } else {
-    passA = await runPassAAnalyst(
-      state,
-      userMessage,
-      conversationSummary,
-      categoryConfig,
-    );
+  if (Object.keys(analysis.extractedFields).length > 0) {
+    state = mergeExtractedFields(state, analysis.extractedFields);
   }
 
-  const forcedChoiceLabel =
-    forcedChoice && input.session.forcedChoices
-      ? forcedChoice === "a"
-        ? input.session.forcedChoices.a
-        : input.session.forcedChoices.b
-      : null;
+  state = refreshSessionProgress(state);
 
-  const passAActiveDataPointKey = state.activeDataPoint;
-  const transition = applyPassAToState(
+  const newlyCapturedKeys = detectNewlyCapturedKeys(
+    snapshotBeforeMerge,
     state,
-    passA,
-    categoryConfig,
-    forcedChoice,
-  );
-  state = transition.state;
-  state = await applyBackendDerivationIfReady(
-    state,
-    categoryConfig,
-    conversationSummary,
   );
 
-  const activeConfig = getCategoryConfig(state.category);
-  state = await ensureDynamicContextAnchor(
+  const message = await runPersonaResponse({
     state,
-    activeConfig,
+    userMessage,
     conversationSummary,
-  );
-
-  const nextDataPoint =
-    getNextUnpopulatedDataPoint(activeConfig, state.extractedData) ??
-    getDataPointByKey(activeConfig, state.activeDataPoint) ??
-    null;
-
-  const exceptionScript: GauntletException =
-    transition.exceptionScript ?? state.activeException;
-
-  const message = await runPassBPersona({
-    state,
-    categoryConfig: activeConfig,
-    passA,
-    passAActiveDataPointKey,
-    userMessage: forcedChoiceLabel ?? userMessage,
-    conversationSummary,
-    exceptionScript,
-    nextDataPoint,
-    newlySkippedKeys: transition.newlySkippedKeys,
-    resolvedActiveValue: transition.resolvedActiveValue,
+    newlyCapturedKeys,
   });
 
   return {
