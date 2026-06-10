@@ -1,7 +1,12 @@
 import { Type } from "@google/genai";
 import {
+  buildMissingFieldsBlock,
+  type ResourceConflictContext,
+} from "@/lib/ai/gauntlet/context-guardrails";
+import {
   buildExtractionFieldsPromptBlock,
   CATEGORY_FIELD_KEY,
+  PROMPTED_FIELD_KEYS,
 } from "@/lib/ai/gauntlet/scoping-fields";
 import {
   buildTriageMatrixPromptBlock,
@@ -13,6 +18,8 @@ import { generateContentWithRetry } from "@/lib/ai/gemini-client";
 
 export type UnifiedTurnAnalysis = {
   extractedFields: Record<string, string>;
+  suggestedNextFieldKey: string | null;
+  resourceConflict: ResourceConflictContext;
 };
 
 function buildUnifiedTurnPrompt(
@@ -49,6 +56,9 @@ ${classificationBlock}
 EXTRACTION FIELDS
 ${buildExtractionFieldsPromptBlock()}
 
+STILL MISSING (prompted scoping slots only)
+${buildMissingFieldsBlock(state.extractedData)}
+
 ALREADY CAPTURED
 ${knownValuesBlock}
 
@@ -60,14 +70,28 @@ LATEST USER MESSAGE
 
 EXTRACTION RULES
 1. Scan the full conversation summary linearly — oldest to newest — and capture explicit statements only.
-2. Populate extractedFields with clean, un-vetted string values for project_type, skill_level, available_time, and budget when the user clearly stated them.
-3. Do not infer, guess, or rewrite user intent. Skip fields with no direct evidence.
+2. Populate extractedFields with clean, un-vetted string values when the user clearly stated them — regardless of which field they mention first.
+3. Do not infer, guess, or rewrite user intent. Leave unknown slots absent from extractedFields — never fabricate boilerplate.
 4. Never overwrite a known captured value unless the latest user message explicitly corrects it.
-5. Category belongs in extractedFields only — it is inferred from the pitch, never asked as a questionnaire.
+5. Category belongs in extractedFields only — inferred from the pitch, never asked as a questionnaire.
+
+DYNAMIC NEXT FOCUS (suggestedNextFieldKey)
+- Must be one of: ${PROMPTED_FIELD_KEYS.join(", ")}, or null when all prompted slots are filled.
+- Choose based on conversational flow and what is still missing — NOT a fixed questionnaire order.
+- Honor the user's entry point: if they led with time, budget, or scope, prioritize the missing field that best continues their thread.
+- After they disclose a variable, prefer a missing field that logically cross-references what they just shared.
+
+RESOURCE CONFLICT DETECTION
+- Set resourceConflictDetected true only when logged or newly extracted scope/execution ambition clearly conflicts with logged or newly extracted time or budget constraints.
+- conflictSummary must be one sentence referencing ONLY logged field values — no invented details or template scenarios.
+- When true, suggestedNextFieldKey should target the missing slot that best resolves the tension.
 
 Return JSON with:
 - classifiedCategory: taxonomy key or null (only when category not yet captured)
-- extractedFields: object mapping field keys to extracted string values`;
+- extractedFields: object mapping field keys to extracted string values
+- suggestedNextFieldKey: missing prompted field key or null
+- resourceConflictDetected: boolean
+- conflictSummary: string or null`;
 }
 
 export async function runUnifiedTurnAnalysis(
@@ -89,8 +113,17 @@ export async function runUnifiedTurnAnalysis(
         properties: {
           classifiedCategory: { type: Type.STRING, nullable: true },
           extractedFields: { type: Type.OBJECT },
+          suggestedNextFieldKey: { type: Type.STRING, nullable: true },
+          resourceConflictDetected: { type: Type.BOOLEAN },
+          conflictSummary: { type: Type.STRING, nullable: true },
         },
-        required: ["classifiedCategory", "extractedFields"],
+        required: [
+          "classifiedCategory",
+          "extractedFields",
+          "suggestedNextFieldKey",
+          "resourceConflictDetected",
+          "conflictSummary",
+        ],
       },
     },
   });
@@ -103,6 +136,9 @@ export async function runUnifiedTurnAnalysis(
   const parsed = JSON.parse(raw) as {
     classifiedCategory?: string | null;
     extractedFields?: Record<string, unknown>;
+    suggestedNextFieldKey?: string | null;
+    resourceConflictDetected?: boolean;
+    conflictSummary?: string | null;
   };
 
   const extractedFields: Record<string, string> = {};
@@ -122,5 +158,17 @@ export async function runUnifiedTurnAnalysis(
     }
   }
 
-  return { extractedFields };
+  const suggestedRaw = parsed.suggestedNextFieldKey?.trim() ?? null;
+  const suggestedNextFieldKey =
+    suggestedRaw && PROMPTED_FIELD_KEYS.includes(suggestedRaw) ? suggestedRaw : null;
+
+  const resourceConflict: ResourceConflictContext = {
+    detected: parsed.resourceConflictDetected === true,
+    summary:
+      typeof parsed.conflictSummary === "string" && parsed.conflictSummary.trim().length > 0
+        ? parsed.conflictSummary.trim()
+        : null,
+  };
+
+  return { extractedFields, suggestedNextFieldKey, resourceConflict };
 }

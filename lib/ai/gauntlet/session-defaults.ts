@@ -1,7 +1,6 @@
 import {
   CATEGORY_FIELD_KEY,
-  getFirstMissingPromptedField,
-  PROMPTED_EXTRACTION_FIELDS,
+  resolveActiveDataPoint,
   seedExtractedData,
 } from "@/lib/ai/gauntlet/scoping-fields";
 import {
@@ -19,7 +18,7 @@ export function createPendingSessionState(
     projectId,
     category: PENDING_CATEGORY,
     currentStage: 1,
-    activeDataPoint: PROMPTED_EXTRACTION_FIELDS[0].key,
+    activeDataPoint: "",
     escalationAttempt: 1,
     isInputLocked: false,
     isCurrentFieldPredicted: false,
@@ -73,19 +72,18 @@ export function mergeExtractedFields(
     merged[key] = value.trim();
   }
 
-  return refreshSessionProgress({
-    ...state,
-    extractedData: merged,
-  });
+  return syncCategoryColumn({ ...state, extractedData: merged });
 }
 
 export function refreshSessionProgress(
   state: OnboardingSessionState,
+  suggestedNextFieldKey?: string | null,
 ): OnboardingSessionState {
   const extractedData = seedExtractedData(state.extractedData);
-  const missingField = getFirstMissingPromptedField(extractedData);
-  const activeDataPoint =
-    missingField?.key ?? PROMPTED_EXTRACTION_FIELDS[PROMPTED_EXTRACTION_FIELDS.length - 1].key;
+  const activeDataPoint = resolveActiveDataPoint(
+    extractedData,
+    suggestedNextFieldKey ?? null,
+  );
 
   return syncCategoryColumn({
     ...state,

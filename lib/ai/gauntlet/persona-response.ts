@@ -1,12 +1,19 @@
 import {
+  buildContextLockedInterrogationRules,
+  buildCorePersonaIdentityBlock,
+  buildLoggedIngredientsBlock,
+  buildMissingFieldsBlock,
+  buildPersonaDeliveryChecklist,
+  buildResourceConflictDirective,
+  inferDomainWeight,
+  type ResourceConflictContext,
+} from "@/lib/ai/gauntlet/context-guardrails";
+import {
   CATEGORY_FIELD_KEY,
   getExtractionFieldByKey,
-  getFirstMissingPromptedField,
   isExtractionComplete,
 } from "@/lib/ai/gauntlet/scoping-fields";
-import { getCustomerModelLanguage } from "@/lib/ai/gauntlet/taxonomy";
 import type { OnboardingSessionState } from "@/lib/ai/gauntlet/types";
-import { TAXONOMY_FORBIDDEN_PHRASES } from "@/lib/ai/gauntlet/types";
 import { generateContentWithRetry } from "@/lib/ai/gemini-client";
 
 export type PersonaResponseContext = {
@@ -15,20 +22,21 @@ export type PersonaResponseContext = {
   conversationSummary: string;
   isOpening?: boolean;
   newlyCapturedKeys?: string[];
+  resourceConflict?: ResourceConflictContext;
 };
 
-function buildCapturedSummary(
+function buildFreshCaptureBlock(
   state: OnboardingSessionState,
   newlyCapturedKeys: string[],
 ): string {
   if (newlyCapturedKeys.length === 0) {
-    return "Nothing new was captured from the latest message.";
+    return "Nothing new logged this turn — lean on their latest message and prior ingredients.";
   }
 
   const lines = newlyCapturedKeys
     .map((key) => {
       if (key === CATEGORY_FIELD_KEY) {
-        return null;
+        return "- background category weight updated (internal — do not mention aloud)";
       }
 
       const value = state.extractedData[key]?.trim();
@@ -43,70 +51,74 @@ function buildCapturedSummary(
 
   return lines.length > 0
     ? lines.join("\n")
-    : "Nothing new was captured from the latest message.";
+    : "Nothing new logged this turn — lean on their latest message and prior ingredients.";
 }
 
-function buildNextQuestionDirective(state: OnboardingSessionState): string {
+function buildNextTurnDirective(state: OnboardingSessionState): string {
   if (isExtractionComplete(state.extractedData)) {
-    return `NEXT PROMPT
-- All four scoping fields are captured.
-- Briefly reflect the picture you have of their venture.
-- Ask if they want to adjust anything or move forward with planning.`;
+    return `TURN GOAL
+All core parameters are captured. Reflect back the venture in their words — concrete, specific, human. Ask if anything needs adjusting before moving forward.`;
   }
 
-  const missingField = getFirstMissingPromptedField(state.extractedData);
-  if (!missingField) {
-    return `NEXT PROMPT
-- Ask what they are building in plain language.`;
-  }
+  return `TURN GOAL
+One missing parameter remains in the active focal slot below. Acknowledge what landed, then ask a single domain-native question to fill that gap.`;
+}
 
-  return `NEXT PROMPT
-- Ask for their ${missingField.label} in natural, conversational language.
-- Hint to capture: ${missingField.promptHint}
-- One question only — do not stack multiple asks.`;
+function buildOpeningTurnBlock(): string {
+  return `OPENING TURN
+No user message yet. Welcome them like a co-founder would — brief, warm, no bureaucracy.
+Invite them to walk you through what they're building and what they're working with. Let them lead the order.`;
 }
 
 function buildPersonaPrompt(context: PersonaResponseContext): string {
-  const { state, userMessage, conversationSummary, isOpening, newlyCapturedKeys = [] } =
-    context;
+  const {
+    state,
+    userMessage,
+    conversationSummary,
+    isOpening,
+    newlyCapturedKeys = [],
+    resourceConflict = { detected: false, summary: null },
+  } = context;
 
-  const categoryId = state.extractedData[CATEGORY_FIELD_KEY]?.trim();
-  const customerModelLanguage = categoryId
-    ? getCustomerModelLanguage(categoryId)
-    : "A venture we're mapping together";
+  const categoryKey = state.extractedData[CATEGORY_FIELD_KEY]?.trim() || undefined;
+  const domainWeight = inferDomainWeight(categoryKey);
+  const activeField = getExtractionFieldByKey(state.activeDataPoint) ?? null;
 
-  const openingBlock = isOpening
-    ? `OPENING TURN
-- No user message yet. Deliver a warm, concise welcome.
-- Invite them to pitch the business idea in their own words.
-- Do not ask for all variables at once.`
-    : `USER MESSAGE
+  const turnBlock = isOpening
+    ? buildOpeningTurnBlock()
+    : `LATEST USER MESSAGE
 """${userMessage || "(empty)"}"""`;
 
-  return `You are a supportive venture-building partner in a conversational onboarding chat.
-You speak like a sharp co-founder — encouraging, direct, and practical.
+  const conflictBlock = buildResourceConflictDirective(resourceConflict);
 
-FORBIDDEN LANGUAGE (never use these words or reveal internal routing):
-${TAXONOMY_FORBIDDEN_PHRASES.join(", ")}
+  return `${buildCorePersonaIdentityBlock(categoryKey, domainWeight)}
 
-CUSTOMER MODEL (internal compass — describe the idea using this shape, never quote taxonomy codes):
-${customerModelLanguage}
+LOGGED INGREDIENTS (source of truth for names, numbers, and constraints)
+${buildLoggedIngredientsBlock(state.extractedData)}
 
-CONVERSATION SUMMARY
+STILL TO EXPLORE
+${buildMissingFieldsBlock(state.extractedData)}
+
+CONVERSATION SO FAR
 ${conversationSummary || "Fresh session."}
 
-${openingBlock}
+${turnBlock}
 
 JUST CAPTURED THIS TURN
-${buildCapturedSummary(state, newlyCapturedKeys)}
+${buildFreshCaptureBlock(state, newlyCapturedKeys)}
 
-${buildNextQuestionDirective(state)}
+${buildNextTurnDirective(state)}
 
-STYLE RULES
-1. Two short paragraphs max — validate what landed, then ask the next question.
-2. Never mention stages, schemas, data points, classification tracks, or attempt numbers.
-3. Never disable free-text input or demand they pick from fixed options.
-4. Plain text only — no markdown lists or bullet characters.`;
+${buildContextLockedInterrogationRules(
+  state.extractedData,
+  activeField,
+  newlyCapturedKeys,
+  domainWeight,
+)}
+
+${conflictBlock}
+
+${buildPersonaDeliveryChecklist()}`;
 }
 
 export async function runPersonaResponse(
@@ -125,15 +137,14 @@ export async function runPersonaResponse(
   const text = response.text?.trim();
   if (!text) {
     if (context.isOpening) {
-      return "Hey — I'm here to help you stress-test a business idea. Pitch me what you're building, who it's for, and what you're working with.";
+      return "Hey — pull up a chair. Walk me through what you're building and what you're starting with. We'll stress-test it together.";
     }
 
-    const missingField = getFirstMissingPromptedField(context.state.extractedData);
-    if (missingField) {
-      return `Thanks for sharing that. What would you say your ${missingField.label.toLowerCase()} looks like for this project?`;
+    if (isExtractionComplete(context.state.extractedData)) {
+      return "I think we've got a solid read on this. Anything you'd tweak before we keep going?";
     }
 
-    return "We've got a solid snapshot. Want to tweak anything before we move forward?";
+    return "Got it — tell me a bit more so we can keep shaping this in your world, not mine.";
   }
 
   return text;

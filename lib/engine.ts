@@ -1,8 +1,12 @@
+import type { ExtractedData } from "@/lib/ai/gauntlet/types";
+import { CATEGORY_FIELD_KEY } from "@/lib/ai/gauntlet/scoping-fields";
+
+/** Flat onboarding inputs sourced from `extractedData`. */
 export type ProjectMetricsInput = {
-  projectSummary: string;
-  skillLevel: number;
-  hoursPerWeek: number;
-  maxBudget: number;
+  category: string;
+  validation_goal: string;
+  available_time: string;
+  budget: string;
 };
 
 export type RiskLevel = "Low" | "Medium" | "High";
@@ -14,165 +18,79 @@ export type ProjectMetrics = {
   techStack: string[];
 };
 
-const BASE_MVP_COST = 50;
-
-const SUMMARY_COST_RULES: { keywords: string[]; cost: number }[] = [
-  { keywords: ["database", "db", "postgres", "supabase"], cost: 0 },
-  { keywords: ["ai", "llm", "gpt", "openai", "machine learning"], cost: 20 },
-  { keywords: ["email", "mail", "newsletter", "transactional"], cost: 0 },
-  { keywords: ["payment", "stripe", "checkout", "billing"], cost: 0 },
-  { keywords: ["mobile", "ios", "android"], cost: 99 },
-  { keywords: ["game", "unity", "godot"], cost: 150 },
-  { keywords: ["domain", "hosting"], cost: 15 },
-];
-
-const COMPLEXITY_KEYWORDS = [
-  "ai",
-  "llm",
-  "machine learning",
-  "mobile",
-  "game",
-  "payment",
-  "real-time",
-  "multiplayer",
-  "blockchain",
-  "video",
-  "marketplace",
-];
-
-function normalizeSummary(summary: string): string {
-  return summary.toLowerCase();
-}
+const REQUIRED_ONBOARDING_KEYS = [
+  CATEGORY_FIELD_KEY,
+  "validation_goal",
+  "available_time",
+  "budget",
+] as const;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function estimateRequiredCapital(summary: string): number {
-  const normalized = normalizeSummary(summary);
-  let total = BASE_MVP_COST;
-
-  for (const rule of SUMMARY_COST_RULES) {
-    if (rule.keywords.some((keyword) => normalized.includes(keyword))) {
-      total += rule.cost;
-    }
-  }
-
-  return total;
+function pickField(extractedData: ExtractedData, key: string): string {
+  return extractedData[key]?.trim() ?? "";
 }
 
-function estimateComplexity(summary: string): number {
-  const normalized = normalizeSummary(summary);
-  let complexity = 1;
-
-  for (const keyword of COMPLEXITY_KEYWORDS) {
-    if (normalized.includes(keyword)) {
-      complexity += 1;
-    }
-  }
-
-  return complexity;
+function parseNumericToken(raw: string): number {
+  const match = raw.replace(/,/g, "").match(/[\d.]+/);
+  return match ? parseFloat(match[0]) : 0;
 }
 
-function buildTechStack(summary: string): string[] {
-  const normalized = normalizeSummary(summary);
-  const stack = new Set<string>(["Vercel"]);
+export function parseOnboardingAnswers(
+  extractedData: ExtractedData,
+): ProjectMetricsInput | null {
+  const parsed: ProjectMetricsInput = {
+    category: pickField(extractedData, CATEGORY_FIELD_KEY),
+    validation_goal: pickField(extractedData, "validation_goal"),
+    available_time: pickField(extractedData, "available_time"),
+    budget: pickField(extractedData, "budget"),
+  };
 
-  if (
-    normalized.includes("database") ||
-    normalized.includes("db") ||
-    normalized.includes("auth") ||
-    normalized.includes("saas") ||
-    normalized.includes("app") ||
-    normalized.includes("web")
-  ) {
-    stack.add("Supabase");
-  }
+  const complete = REQUIRED_ONBOARDING_KEYS.every(
+    (key) => pickField(extractedData, key).length > 0,
+  );
 
-  if (
-    normalized.includes("email") ||
-    normalized.includes("mail") ||
-    normalized.includes("newsletter") ||
-    normalized.includes("notification")
-  ) {
-    stack.add("Resend");
-  }
-
-  if (stack.size === 1) {
-    stack.add("Supabase");
-  }
-
-  return Array.from(stack);
+  return complete ? parsed : null;
 }
 
-function calculateRiskLevel(
-  requiredCapital: number,
-  maxBudget: number,
-  complexity: number,
-): RiskLevel {
-  const complexityFloor = requiredCapital * (1 + complexity * 0.15);
-
-  if (maxBudget < requiredCapital) {
-    return "High";
-  }
-
-  if (maxBudget < complexityFloor) {
-    return "Medium";
-  }
-
-  return "Low";
-}
-
+/**
+ * Placeholder metric pass — real feasibility formulas will replace this later.
+ * Uses only the new flat string inputs; no legacy summary/skill heuristics.
+ */
 export function calculateProjectMetrics(
   input: ProjectMetricsInput,
 ): ProjectMetrics {
-  const skillLevel = clamp(Math.round(input.skillLevel), 1, 5);
-  const hoursPerWeek = Math.max(0, input.hoursPerWeek);
-  const maxBudget = Math.max(0, input.maxBudget);
+  const hoursPerWeek = parseNumericToken(input.available_time);
+  const maxBudget = parseNumericToken(input.budget);
+  const validationDepth = input.validation_goal.trim().length;
+  const categoryDepth = input.category.trim().length;
 
-  const doabilityScore = Math.min(
+  const doabilityScore = clamp(
+    Math.round(validationDepth + hoursPerWeek),
+    1,
     100,
-    Math.round((skillLevel * hoursPerWeek)),
   );
 
-  const requiredCapital = estimateRequiredCapital(input.projectSummary);
-  const complexity = estimateComplexity(input.projectSummary);
-  const riskLevel = calculateRiskLevel(
-    requiredCapital,
-    maxBudget,
-    complexity,
-  );
-  const techStack = buildTechStack(input.projectSummary);
+  const requiredCapital = maxBudget > 0 ? maxBudget : validationDepth + categoryDepth;
+
+  let riskLevel: RiskLevel = "Medium";
+  if (maxBudget > 0 && hoursPerWeek > 0) {
+    riskLevel = maxBudget >= requiredCapital ? "Low" : "High";
+  } else if (maxBudget === 0 && hoursPerWeek === 0) {
+    riskLevel = "Medium";
+  } else {
+    riskLevel = "High";
+  }
+
+  const techStack = input.category ? [input.category] : ["pending"];
 
   return {
     doabilityScore,
     requiredCapital,
     riskLevel,
     techStack,
-  };
-}
-
-export function parseOnboardingAnswers(
-  userMessages: string[],
-): ProjectMetricsInput | null {
-  if (userMessages.length < 5) {
-    return null;
-  }
-
-  const [summary, projectType, skillRaw, hoursRaw, budgetRaw] = userMessages;
-  const projectSummary = `${summary} ${projectType}`.trim();
-
-  const skillLevel = clamp(parseInt(skillRaw, 10) || 1, 1, 5);
-  const hoursPerWeek =
-    parseFloat(hoursRaw.replace(/[^\d.]/g, "")) || 0;
-  const maxBudget =
-    parseFloat(budgetRaw.replace(/[^\d.]/g, "")) || 0;
-
-  return {
-    projectSummary,
-    skillLevel,
-    hoursPerWeek,
-    maxBudget,
   };
 }
 

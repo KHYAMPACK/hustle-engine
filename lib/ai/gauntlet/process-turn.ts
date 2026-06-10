@@ -1,10 +1,13 @@
 import { getMessageText } from "@/lib/chat-utils";
 import { runPersonaResponse } from "@/lib/ai/gauntlet/persona-response";
 import {
+  getExtractionFieldByKey,
+  isExtractionComplete,
+} from "@/lib/ai/gauntlet/scoping-fields";
+import {
   mergeExtractedFields,
   refreshSessionProgress,
 } from "@/lib/ai/gauntlet/session-defaults";
-import { getFirstMissingPromptedField } from "@/lib/ai/gauntlet/scoping-fields";
 import { runUnifiedTurnAnalysis } from "@/lib/ai/gauntlet/unified-turn";
 import type {
   ActiveQuestionContext,
@@ -39,13 +42,17 @@ function getLastUserMessage(messages: UIMessage[]): string {
 function buildActiveQuestion(
   state: OnboardingSessionState,
 ): ActiveQuestionContext | null {
-  const missingField = getFirstMissingPromptedField(state.extractedData);
-  if (!missingField) {
+  if (isExtractionComplete(state.extractedData)) {
+    return null;
+  }
+
+  const activeField = getExtractionFieldByKey(state.activeDataPoint);
+  if (!activeField) {
     return null;
   }
 
   return {
-    key: missingField.key,
+    key: activeField.key,
     isMultipleChoice: false,
     section: "user_acquisition",
     choiceOptions: null,
@@ -125,7 +132,7 @@ export async function processGauntletTurn(
     state = mergeExtractedFields(state, analysis.extractedFields);
   }
 
-  state = refreshSessionProgress(state);
+  state = refreshSessionProgress(state, analysis.suggestedNextFieldKey);
 
   const newlyCapturedKeys = detectNewlyCapturedKeys(
     snapshotBeforeMerge,
@@ -137,6 +144,7 @@ export async function processGauntletTurn(
     userMessage,
     conversationSummary,
     newlyCapturedKeys,
+    resourceConflict: analysis.resourceConflict,
   });
 
   return {

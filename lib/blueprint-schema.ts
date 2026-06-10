@@ -24,7 +24,7 @@ export type VentureBlueprint = z.infer<typeof finalizeBlueprintSchema>;
 
 export const finalizeBlueprintTool = tool({
   description:
-    "Call this tool automatically the exact moment you have collected all 4 key variables (Project Type, Skill Level, Available Time, Budget) to generate the official project metrics and tasks. Do not call early. Populate every field with venture-specific, pragmatic values derived from the full conversation.",
+    "Call this tool automatically once all four onboarding variables are captured (category, validation_goal, available_time, budget) to generate official project metrics and tasks. Do not call early. Populate every field with venture-specific, pragmatic values derived from the full conversation.",
   inputSchema: finalizeBlueprintSchema,
   execute: async (blueprint) => blueprint,
 });
