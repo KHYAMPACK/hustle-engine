@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  CATEGORY_FIELD_KEY,
   getExtractionFieldByKey,
+  getFirstMissingPromptedField,
   getMissingPromptedFields,
   isExtractionComplete,
   PROMPTED_EXTRACTION_FIELDS,
@@ -87,12 +87,20 @@ export function GauntletDebugPanel({
 }: GauntletDebugPanelProps) {
   const rows: CollectedFieldRow[] = [];
   let capturedCount = 0;
-  let categoryRow: CollectedFieldRow | null = null;
 
   if (state) {
     for (const field of PROMPTED_EXTRACTION_FIELDS) {
-      const value = state.extractedData[field.key]?.trim() || null;
-      if (value) {
+      const rawValue = state.extractedData[field.key]?.trim() || null;
+      const taxonomy =
+        field.key === "category" && rawValue
+          ? getTaxonomyEntry(rawValue)
+          : undefined;
+      const value =
+        taxonomy && rawValue
+          ? `${rawValue} (${taxonomy.pillarLabel})`
+          : rawValue;
+
+      if (rawValue) {
         capturedCount += 1;
       }
 
@@ -103,31 +111,14 @@ export function GauntletDebugPanel({
         isActive: state.activeDataPoint === field.key,
       });
     }
-
-    const categoryValue = state.extractedData[CATEGORY_FIELD_KEY]?.trim() || null;
-    if (categoryValue) {
-      capturedCount += 1;
-    }
-
-    const taxonomy = categoryValue ? getTaxonomyEntry(categoryValue) : undefined;
-
-    categoryRow = {
-      key: CATEGORY_FIELD_KEY,
-      label: "Business Category",
-      value: categoryValue
-        ? taxonomy
-          ? `${categoryValue}\n${taxonomy.pillarLabel}`
-          : categoryValue
-        : null,
-      isActive: false,
-    };
   }
 
-  const totalSlots = PROMPTED_EXTRACTION_FIELDS.length + 1;
+  const totalSlots = PROMPTED_EXTRACTION_FIELDS.length;
   const complete = state ? isExtractionComplete(state.extractedData) : false;
   const missing = state ? getMissingPromptedFields(state.extractedData) : [];
   const activeLabel =
     getExtractionFieldByKey(state?.activeDataPoint ?? "")?.label ??
+    getFirstMissingPromptedField(state?.extractedData ?? {})?.label ??
     (complete ? "Complete" : "—");
 
   return (
@@ -203,17 +194,6 @@ export function GauntletDebugPanel({
             </ul>
           )}
         </section>
-
-        {categoryRow && (
-          <section>
-            <h3 className="text-[10px] font-semibold tracking-[0.2em] text-muted uppercase">
-              Inferred Category
-            </h3>
-            <ul className="mt-2">
-              <CollectedFieldRow row={categoryRow} />
-            </ul>
-          </section>
-        )}
 
         {state && (
           <section className="rounded-sm border border-dashed border-border/50 px-2.5 py-2 font-mono text-[9px] text-muted">

@@ -1,10 +1,12 @@
 import type { ExtractedData } from "@/lib/ai/gauntlet/types";
-import { CATEGORY_FIELD_KEY } from "@/lib/ai/gauntlet/scoping-fields";
+import { PROMPTED_FIELD_KEYS } from "@/lib/ai/gauntlet/scoping-fields";
 
 /** Flat onboarding inputs sourced from `extractedData`. */
 export type ProjectMetricsInput = {
   category: string;
-  validation_goal: string;
+  end_goal: string;
+  assumption: string;
+  skills: string;
   available_time: string;
   budget: string;
 };
@@ -17,13 +19,6 @@ export type ProjectMetrics = {
   riskLevel: RiskLevel;
   techStack: string[];
 };
-
-const REQUIRED_ONBOARDING_KEYS = [
-  CATEGORY_FIELD_KEY,
-  "validation_goal",
-  "available_time",
-  "budget",
-] as const;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -41,14 +36,16 @@ function parseNumericToken(raw: string): number {
 export function parseOnboardingAnswers(
   extractedData: ExtractedData,
 ): ProjectMetricsInput | null {
-  const parsed: ProjectMetricsInput = {
-    category: pickField(extractedData, CATEGORY_FIELD_KEY),
-    validation_goal: pickField(extractedData, "validation_goal"),
+  const parsed = {
+    category: pickField(extractedData, "category"),
+    end_goal: pickField(extractedData, "end_goal"),
+    assumption: pickField(extractedData, "assumption"),
+    skills: pickField(extractedData, "skills"),
     available_time: pickField(extractedData, "available_time"),
     budget: pickField(extractedData, "budget"),
-  };
+  } satisfies ProjectMetricsInput;
 
-  const complete = REQUIRED_ONBOARDING_KEYS.every(
+  const complete = PROMPTED_FIELD_KEYS.every(
     (key) => pickField(extractedData, key).length > 0,
   );
 
@@ -57,33 +54,25 @@ export function parseOnboardingAnswers(
 
 /**
  * Placeholder metric pass — real feasibility formulas will replace this later.
- * Uses only the new flat string inputs; no legacy summary/skill heuristics.
  */
 export function calculateProjectMetrics(
   input: ProjectMetricsInput,
 ): ProjectMetrics {
   const hoursPerWeek = parseNumericToken(input.available_time);
   const maxBudget = parseNumericToken(input.budget);
-  const validationDepth = input.validation_goal.trim().length;
-  const categoryDepth = input.category.trim().length;
+  const signalLength =
+    input.end_goal.trim().length +
+    input.assumption.trim().length +
+    input.skills.trim().length;
 
-  const doabilityScore = clamp(
-    Math.round(validationDepth + hoursPerWeek),
-    1,
-    100,
-  );
-
-  const requiredCapital = maxBudget > 0 ? maxBudget : validationDepth + categoryDepth;
-
-  let riskLevel: RiskLevel = "Medium";
-  if (maxBudget > 0 && hoursPerWeek > 0) {
-    riskLevel = maxBudget >= requiredCapital ? "Low" : "High";
-  } else if (maxBudget === 0 && hoursPerWeek === 0) {
-    riskLevel = "Medium";
-  } else {
-    riskLevel = "High";
-  }
-
+  const doabilityScore = clamp(Math.round(signalLength + hoursPerWeek), 1, 100);
+  const requiredCapital = maxBudget > 0 ? maxBudget : signalLength;
+  const riskLevel: RiskLevel =
+    maxBudget > 0 && hoursPerWeek > 0
+      ? maxBudget >= requiredCapital
+        ? "Low"
+        : "High"
+      : "Medium";
   const techStack = input.category ? [input.category] : ["pending"];
 
   return {

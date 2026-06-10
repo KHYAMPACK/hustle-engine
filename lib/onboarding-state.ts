@@ -29,7 +29,13 @@ import {
   createPendingSessionState,
   refreshSessionProgress,
 } from "@/lib/ai/gauntlet/session-defaults";
-import { resolveClassifiedCategory } from "@/lib/ai/gauntlet/taxonomy";
+import { seedExtractedData, CATEGORY_FIELD_KEY } from "@/lib/ai/gauntlet/scoping-fields";
+import {
+  isPendingCategory,
+  isValidBusinessCategory,
+  PENDING_CATEGORY,
+  resolveClassifiedCategory,
+} from "@/lib/ai/gauntlet/taxonomy";
 import type {
   ExtractedData,
   ForcedChoices,
@@ -58,24 +64,45 @@ type OnboardingSessionRow = {
 function repairLegacySessionState(
   state: Omit<OnboardingSessionState, "isCurrentFieldPredicted">,
 ): Omit<OnboardingSessionState, "isCurrentFieldPredicted"> {
-  const resolvedCategory = resolveClassifiedCategory(state.category);
-  const extractedData = { ...state.extractedData };
+  const repairedBase = {
+    ...state,
+    isInputLocked: false,
+    forcedChoices: null,
+    escalationAttempt: 1 as const,
+    activeException: null,
+  };
 
-  if (
-    resolvedCategory &&
-    !extractedData.category?.trim()
-  ) {
-    extractedData.category = resolvedCategory;
+  if (isPendingCategory(state.category)) {
+    return {
+      ...repairedBase,
+      category: PENDING_CATEGORY,
+      extractedData: seedExtractedData(),
+    };
+  }
+
+  const resolvedCategory = resolveClassifiedCategory(state.category);
+  const hasConfirmedColumnCategory =
+    resolvedCategory !== null && isValidBusinessCategory(resolvedCategory);
+
+  const extractedData = seedExtractedData(state.extractedData);
+
+  if (!hasConfirmedColumnCategory) {
+    extractedData[CATEGORY_FIELD_KEY] = "";
+    return {
+      ...repairedBase,
+      category: PENDING_CATEGORY,
+      extractedData,
+    };
+  }
+
+  if (!extractedData[CATEGORY_FIELD_KEY]?.trim()) {
+    extractedData[CATEGORY_FIELD_KEY] = resolvedCategory;
   }
 
   return {
-    ...state,
-    category: resolvedCategory ?? state.category,
+    ...repairedBase,
+    category: resolvedCategory,
     extractedData,
-    isInputLocked: false,
-    forcedChoices: null,
-    escalationAttempt: 1,
-    activeException: null,
   };
 }
 
@@ -101,7 +128,7 @@ function rowToState(row: OnboardingSessionRow): OnboardingSessionState {
     activeDataPoint: row.active_data_point,
     escalationAttempt: row.escalation_attempt as 1 | 2 | 3,
     isInputLocked: row.is_input_locked,
-    extractedData: row.extracted_data ?? {},
+    extractedData: seedExtractedData(row.extracted_data ?? {}),
     forcedChoices,
     activeException: (row.active_exception as GauntletException) ?? null,
     backwardEditCount: row.backward_edit_count,

@@ -1,5 +1,7 @@
 import {
   CATEGORY_FIELD_KEY,
+  isExtractionComplete,
+  normalizeIncomingExtractionFieldKey,
   resolveActiveDataPoint,
   seedExtractedData,
 } from "@/lib/ai/gauntlet/scoping-fields";
@@ -7,7 +9,13 @@ import {
   PENDING_CATEGORY,
   resolveClassifiedCategory,
 } from "@/lib/ai/gauntlet/taxonomy";
-import type { ExtractedData, OnboardingSessionState } from "@/lib/ai/gauntlet/types";
+import type { ExtractedData, GauntletStage, OnboardingSessionState } from "@/lib/ai/gauntlet/types";
+
+/** Stage 1 — conversational scoping / field extraction. */
+export const EXTRACTION_STAGE = 1 as const satisfies GauntletStage;
+
+/** Stage 2 — metrics and blueprint generation once all six fields are captured. */
+export const GENERATION_STAGE = 2 as const satisfies GauntletStage;
 
 export function createPendingSessionState(
   projectId: string | null = null,
@@ -17,7 +25,7 @@ export function createPendingSessionState(
   return refreshSessionProgress({
     projectId,
     category: PENDING_CATEGORY,
-    currentStage: 1,
+    currentStage: EXTRACTION_STAGE,
     activeDataPoint: "",
     escalationAttempt: 1,
     isInputLocked: false,
@@ -30,7 +38,8 @@ export function createPendingSessionState(
 }
 
 function syncCategoryColumn(state: OnboardingSessionState): OnboardingSessionState {
-  const rawCategory = state.extractedData[CATEGORY_FIELD_KEY]?.trim();
+  const extractedData = seedExtractedData(state.extractedData);
+  const rawCategory = extractedData[CATEGORY_FIELD_KEY]?.trim();
   const resolved = rawCategory ? resolveClassifiedCategory(rawCategory) : null;
 
   if (resolved) {
@@ -38,7 +47,7 @@ function syncCategoryColumn(state: OnboardingSessionState): OnboardingSessionSta
       ...state,
       category: resolved,
       extractedData: {
-        ...state.extractedData,
+        ...extractedData,
         [CATEGORY_FIELD_KEY]: resolved,
       },
     };
@@ -47,6 +56,7 @@ function syncCategoryColumn(state: OnboardingSessionState): OnboardingSessionSta
   return {
     ...state,
     category: PENDING_CATEGORY,
+    extractedData,
   };
 }
 
@@ -56,23 +66,33 @@ export function mergeExtractedFields(
 ): OnboardingSessionState {
   const merged: ExtractedData = seedExtractedData(state.extractedData);
 
-  for (const [key, value] of Object.entries(fields)) {
+  for (const [rawKey, value] of Object.entries(fields)) {
     if (typeof value !== "string" || value.trim().length === 0) {
       continue;
     }
 
-    if (key === CATEGORY_FIELD_KEY) {
-      const resolved = resolveClassifiedCategory(value);
+    const canonicalKey = normalizeIncomingExtractionFieldKey(rawKey);
+    if (!canonicalKey) {
+      continue;
+    }
+
+    const trimmed = value.trim();
+
+    if (canonicalKey === CATEGORY_FIELD_KEY) {
+      const resolved = resolveClassifiedCategory(trimmed);
       if (resolved) {
         merged[CATEGORY_FIELD_KEY] = resolved;
       }
       continue;
     }
 
-    merged[key] = value.trim();
+    merged[canonicalKey] = trimmed;
   }
 
-  return syncCategoryColumn({ ...state, extractedData: merged });
+  return refreshSessionProgress({
+    ...state,
+    extractedData: merged,
+  });
 }
 
 export function refreshSessionProgress(
@@ -80,6 +100,7 @@ export function refreshSessionProgress(
   suggestedNextFieldKey?: string | null,
 ): OnboardingSessionState {
   const extractedData = seedExtractedData(state.extractedData);
+  const extractionComplete = isExtractionComplete(extractedData);
   const activeDataPoint = resolveActiveDataPoint(
     extractedData,
     suggestedNextFieldKey ?? null,
@@ -89,7 +110,7 @@ export function refreshSessionProgress(
     ...state,
     extractedData,
     activeDataPoint,
-    currentStage: 1,
+    currentStage: extractionComplete ? GENERATION_STAGE : EXTRACTION_STAGE,
     isInputLocked: false,
     forcedChoices: null,
     escalationAttempt: 1,

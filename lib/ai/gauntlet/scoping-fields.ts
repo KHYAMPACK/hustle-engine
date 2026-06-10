@@ -1,33 +1,66 @@
+export type ExtractionRelationalRole =
+  | "scope"
+  | "outcome"
+  | "risk"
+  | "execution"
+  | "time_constraint"
+  | "budget_constraint";
+
 export type ExtractionField = {
   key: string;
   label: string;
   promptHint: string;
-  /** Meta role for context-locked cross-referencing — not user-facing copy. */
-  relationalRole: "scope" | "execution" | "time_constraint" | "budget_constraint";
+  relationalRole: ExtractionRelationalRole;
 };
 
+/** Canonical key for the primary business category slot. */
 export const CATEGORY_FIELD_KEY = "category" as const;
 
+/**
+ * Baseline progression order — out-of-order capture is allowed, but the active
+ * tracker always anchors to the first empty slot in this sequence.
+ */
 export const PROMPTED_EXTRACTION_FIELDS: readonly ExtractionField[] = [
   {
-    key: "validation_goal",
-    label: "Validation Goal",
+    key: "category",
+    label: "Category",
     promptHint:
-      "The simplest, non-financial milestone or action to prove their core loop works before heavy infrastructure setup.",
-    relationalRole: "execution", // Links perfectly to your operational execution path!
+      "Primary business or industry category — infer from pitch using taxonomy when intent is clear; store the taxonomy key only.",
+    relationalRole: "scope",
+  },
+  {
+    key: "end_goal",
+    label: "End Goal",
+    promptHint:
+      "Where the user wants this project to end — the long-term target outcome they are building toward.",
+    relationalRole: "outcome",
+  },
+  {
+    key: "assumption",
+    label: "Assumption",
+    promptHint:
+      "The single most critical dependency or belief that could break the plan if it turns out wrong.",
+    relationalRole: "risk",
+  },
+  {
+    key: "skills",
+    label: "Skills",
+    promptHint:
+      "Whether they already have the skills to execute, plan to learn, or intend to hire external help.",
+    relationalRole: "execution",
   },
   {
     key: "available_time",
     label: "Available Time",
     promptHint:
-      "Realistic weekly focus hours they can commit to executing this venture — check for schedules or limitations.",
+      "Weekly hours they can realistically allocate to building — include ranges or schedule limits if stated.",
     relationalRole: "time_constraint",
   },
   {
     key: "budget",
     label: "Budget",
     promptHint:
-      "Out-of-pocket capital limits they can spend on initial setup, tools, or launch costs — ranges allowed if vague.",
+      "Financial runway or out-of-pocket setup capital available — ranges allowed if vague.",
     relationalRole: "budget_constraint",
   },
 ] as const;
@@ -35,6 +68,69 @@ export const PROMPTED_EXTRACTION_FIELDS: readonly ExtractionField[] = [
 export const PROMPTED_FIELD_KEYS = PROMPTED_EXTRACTION_FIELDS.map(
   (field) => field.key,
 ) as readonly string[];
+
+export const BASELINE_FIELD_ORDER = PROMPTED_FIELD_KEYS;
+
+/** Common Pass A key variants mapped to canonical six-field schema keys. */
+export const EXTRACTION_FIELD_KEY_ALIASES = {
+  category: ["business_category", "type", "track"],
+  end_goal: ["goal", "target", "long_term_goal", "endGoal"],
+  assumption: ["risk", "wrong", "failure_point", "dependency"],
+  skills: ["skill", "experience", "hiring", "team"],
+  available_time: ["time", "weekly_hours", "hours", "availableTime", "weeklyTime"],
+  budget: ["money", "capital", "runway", "funding", "cost_limit"],
+} as const satisfies Record<(typeof PROMPTED_FIELD_KEYS)[number], readonly string[]>;
+
+function camelToSnakeCase(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[-\s]+/g, "_")
+    .toLowerCase();
+}
+
+function registerAliasLookup(
+  lookup: Record<string, string>,
+  canonical: string,
+  alias: string,
+): void {
+  lookup[alias.toLowerCase()] = canonical;
+  lookup[camelToSnakeCase(alias).toLowerCase()] = canonical;
+}
+
+const EXTRACTION_FIELD_ALIAS_LOOKUP: Record<string, string> = {};
+
+for (const canonicalKey of PROMPTED_FIELD_KEYS) {
+  registerAliasLookup(EXTRACTION_FIELD_ALIAS_LOOKUP, canonicalKey, canonicalKey);
+}
+
+for (const [canonicalKey, aliases] of Object.entries(EXTRACTION_FIELD_KEY_ALIASES)) {
+  for (const alias of aliases) {
+    registerAliasLookup(EXTRACTION_FIELD_ALIAS_LOOKUP, canonicalKey, alias);
+  }
+}
+
+/** Map analyst or merge payloads to a strict schema key, or null when unmappable. */
+export function normalizeIncomingExtractionFieldKey(rawKey: string): string | null {
+  const trimmed = rawKey.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (isPromptedFieldKey(trimmed)) {
+    return trimmed;
+  }
+
+  const snakeKey = camelToSnakeCase(trimmed);
+  if (isPromptedFieldKey(snakeKey)) {
+    return snakeKey;
+  }
+
+  return (
+    EXTRACTION_FIELD_ALIAS_LOOKUP[trimmed.toLowerCase()] ??
+    EXTRACTION_FIELD_ALIAS_LOOKUP[snakeKey.toLowerCase()] ??
+    null
+  );
+}
 
 export function getExtractionFieldByKey(
   key: string,
@@ -55,7 +151,6 @@ export function getMissingPromptedFields(
   });
 }
 
-/** @deprecated Use getMissingPromptedFields — no fixed conversational order. */
 export function getFirstMissingPromptedField(
   extractedData: Record<string, string>,
 ): ExtractionField | null {
@@ -70,46 +165,31 @@ export function isExtractionComplete(
 
 export function resolveActiveDataPoint(
   extractedData: Record<string, string>,
-  suggestedKey: string | null | undefined,
+  _suggestedKey?: string | null,
 ): string {
-  const missing = getMissingPromptedFields(extractedData);
-  if (missing.length === 0) {
-    return PROMPTED_EXTRACTION_FIELDS[PROMPTED_EXTRACTION_FIELDS.length - 1].key;
+  const firstMissing = getFirstMissingPromptedField(extractedData);
+  if (firstMissing) {
+    return firstMissing.key;
   }
 
-  if (suggestedKey && isPromptedFieldKey(suggestedKey)) {
-    const match = missing.find((field) => field.key === suggestedKey);
-    if (match) {
-      return match.key;
-    }
-  }
-
-  return missing[0].key;
+  return PROMPTED_EXTRACTION_FIELDS[PROMPTED_EXTRACTION_FIELDS.length - 1].key;
 }
 
 export function buildExtractionFieldsPromptBlock(): string {
-  const prompted = PROMPTED_EXTRACTION_FIELDS.map(
+  return PROMPTED_EXTRACTION_FIELDS.map(
     (field) =>
       `- ${field.key} (${field.label}; role: ${field.relationalRole}): ${field.promptHint}`,
   ).join("\n");
-
-  return `${prompted}
-- ${CATEGORY_FIELD_KEY} (Business Category; role: scope): Infer from pitch using taxonomy when intent is clear — store the taxonomy key only, never ask the user to pick a track.`;
 }
 
 export function seedExtractedData(
   extractedData: Record<string, string> = {},
 ): Record<string, string> {
-  const next = { ...extractedData };
+  const next: Record<string, string> = { ...extractedData };
 
   for (const field of PROMPTED_EXTRACTION_FIELDS) {
-    if (!(field.key in next)) {
-      next[field.key] = "";
-    }
-  }
-
-  if (!(CATEGORY_FIELD_KEY in next)) {
-    next[CATEGORY_FIELD_KEY] = "";
+    const raw = next[field.key];
+    next[field.key] = typeof raw === "string" ? raw : "";
   }
 
   return next;

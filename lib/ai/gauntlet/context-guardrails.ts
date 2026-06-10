@@ -102,37 +102,18 @@ Speak in plain, conversational language. Drop formal business frameworks and sys
 
 export function buildAcknowledgeAndIndustryTranslateBlock(
   extractedData: ExtractedData,
-  activeField: ExtractionField | null,
+  focusField: ExtractionField | null,
   newlyCapturedKeys: string[],
   domainWeight: DomainWeight,
 ): string {
-  const validationGoal = extractedData.validation_goal?.trim();
-  const userAnchors = [
-    validationGoal ? `validation_goal: "${validationGoal}"` : null,
-    extractedData[CATEGORY_FIELD_KEY]?.trim()
-      ? `${CATEGORY_FIELD_KEY}: "${extractedData[CATEGORY_FIELD_KEY].trim()}"`
-      : null,
-    ...newlyCapturedKeys
-      .filter((key) => key !== CATEGORY_FIELD_KEY)
-      .map((key) => {
-        const value = extractedData[key]?.trim();
-        if (!value) {
-          return null;
-        }
-        return `${key}: "${value}"`;
-      }),
-  ]
-    .filter(Boolean)
-    .join(" | ");
-
-  const focalLine = activeField
-    ? `Next exploration parameter to uncover (translate into human language — never say "${activeField.label}" as a form label): ${activeField.key}`
-    : "Next exploration parameter: wrap-up — confirm the snapshot or invite corrections.";
+  const focalLine = focusField
+    ? `Thread to extend with your one question (translate into their domain — never expose internal key or form label): ${focusField.key}`
+    : "Thread to extend: wrap-up — confirm the snapshot or invite corrections.";
 
   const freshAnchorLine =
     newlyCapturedKeys.length > 0
-      ? `What they just gave you (acknowledge this with genuine interest before you pivot): ${userAnchors || "see latest user message"}`
-      : "Fresh anchor: build from logged ingredients and their latest message.";
+      ? "Pass A logged new ingredients this turn — acknowledge what landed with genuine interest before you pivot."
+      : "Build from logged ingredients and their latest message.";
 
   return `ACKNOWLEDGE + INDUSTRY-TRANSLATE (reply mechanics)
 
@@ -140,28 +121,26 @@ ${freshAnchorLine}
 ${focalLine}
 
 Single-threaded shape for this reply:
-1. One short beat of genuine acknowledgement tied to their exact words.
-2. One natural conversational pivot — no checklist tone.
-3. Exactly one open question targeting the next exploration parameter.
+1. One short beat of genuine acknowledgement tied to their exact words from the conversation.
+2. One natural conversational pivot — no checklist tone, no snap-back to an earlier topic they deliberately skipped.
+3. Exactly one open question on the conversational focus above.
 
-Industry translation (learn the mechanic — do not copy analogy nouns unless the user already used them):
-The developer examples below are engine illustrations only. You must synthesize fresh domain vocabulary from the user's text, logged validation_goal, logged category weight, and conversation — never parrot kitchens, cloud databases, or other analogy words unless the user brought them up.
-
-| Weight   | What the mechanic means (do not quote these rows verbatim) |
-| physical | Frame time, budget, and validation milestones around material launch reality — space, inventory, equipment, opening doors — using their industry nouns. |
-| digital  | Frame around build cycles, deployment, hosted tooling, proof milestones, focused build sessions — using their product nouns. |
-| service  | Frame around client capacity, billable hours, delivery bandwidth, subcontract help — using their service nouns. |
-| facilitation | Frame around liquidity to operate the matching engine, onboarding both sides, early traction spend — using their platform nouns. |
+Industry translation:
+- Synthesize vocabulary from the user's nouns, logged ingredients, and domain weight — never import analogy domains they did not use.
+- physical: material launch reality — space, inventory, equipment, opening doors.
+- digital: build cycles, deployment, hosted tooling, focused build sessions.
+- service: client capacity, billable hours, delivery bandwidth, subcontract help.
+- facilitation: liquidity to run the matching engine, onboarding both sides, early traction spend.
 
 Current weight calibration: ${domainWeight}
 If weight is unknown, infer from the user's words first; use background category key only as a tie-breaker.
 
-When asking about validation_goal, available_time, or budget, blend your acknowledgement into their domain — make the question feel like it belongs to their venture, not a generic scoping form.`;
+Blend time, budget, skills, and risk questions into their venture language — never a generic scoping form.`;
 }
 
 export function buildContextLockedInterrogationRules(
   extractedData: ExtractedData,
-  activeField: ExtractionField | null,
+  focusField: ExtractionField | null,
   newlyCapturedKeys: string[],
   domainWeight: DomainWeight,
 ): string {
@@ -170,12 +149,12 @@ export function buildContextLockedInterrogationRules(
   );
 
   const hasScopeLogged = Boolean(
-    extractedData.validation_goal?.trim() || extractedData[CATEGORY_FIELD_KEY]?.trim(),
+    extractedData.end_goal?.trim() || extractedData[CATEGORY_FIELD_KEY]?.trim(),
   );
 
   return `${buildAcknowledgeAndIndustryTranslateBlock(
     extractedData,
-    activeField,
+    focusField,
     newlyCapturedKeys,
     domainWeight,
   )}
@@ -183,6 +162,7 @@ export function buildContextLockedInterrogationRules(
 CONTEXT THREADING
 - Every follow-up threads through logged ingredients — no generic intake script.
 - Resource constraints logged: ${hasResourceLogged ? "yes" : "no"}. Scope or product context logged: ${hasScopeLogged ? "yes" : "no"}.
+- When the user steers off baseline order, stay on their thread until it naturally opens the next gap — do not force the checklist sequence.
 - When constraints and ambition pull in opposite directions, keep questions lean and grounded in what they already stated.
 - Keep the reply punchy: two short paragraphs maximum, one question only.`;
 }

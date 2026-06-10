@@ -8,6 +8,7 @@ import {
   mergeExtractedFields,
   refreshSessionProgress,
 } from "@/lib/ai/gauntlet/session-defaults";
+import { applyStructuralFieldFallback } from "@/lib/ai/gauntlet/state-machine";
 import { runUnifiedTurnAnalysis } from "@/lib/ai/gauntlet/unified-turn";
 import type {
   ActiveQuestionContext,
@@ -132,7 +133,13 @@ export async function processGauntletTurn(
     state = mergeExtractedFields(state, analysis.extractedFields);
   }
 
-  state = refreshSessionProgress(state, analysis.suggestedNextFieldKey);
+  state = applyStructuralFieldFallback(
+    state,
+    userMessage,
+    analysis.extractedFields,
+  );
+
+  state = refreshSessionProgress(state);
 
   const newlyCapturedKeys = detectNewlyCapturedKeys(
     snapshotBeforeMerge,
@@ -144,6 +151,7 @@ export async function processGauntletTurn(
     userMessage,
     conversationSummary,
     newlyCapturedKeys,
+    suggestedNextFieldKey: analysis.suggestedNextFieldKey,
     resourceConflict: analysis.resourceConflict,
   });
 
